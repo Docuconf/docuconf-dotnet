@@ -91,6 +91,9 @@ reads `TimeSpan` as `hh:mm:ss` and lists as `NAME__0`, `NAME__1`, so the platfor
 dotnet test   # needs the cue CLI for the contract checks: go install cuelang.org/go/cmd/cue@v0.17.1
 ```
 
+`scripts/smoke-consumer.sh` packs the library, installs it into a clean app from a local feed, and checks export and
+startup validation. Releases are published from CI with NuGet trusted publishing; see [RELEASING.md](RELEASING.md).
+
 `samples/Billing.Api` uses every input kind. The tests check exported contracts against a copy of the CUE
 meta-schema in `tests/Docuconf.Tests/spec`; refresh it with `scripts/sync-spec.sh`.
 

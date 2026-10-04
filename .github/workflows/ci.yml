@@ -25,3 +25,5 @@ jobs:
       - run: go install cuelang.org/go/cmd/cue@v0.17.1
       - run: dotnet build -c Release
       - run: dotnet test -c Release --no-build
+      # Install the packed package from a local feed into a clean app and use it.
+      - run: ./scripts/smoke-consumer.sh
