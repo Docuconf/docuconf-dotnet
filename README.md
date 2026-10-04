@@ -1,0 +1,97 @@
+# docuconf for .NET
+
+Typed configuration contracts for the .NET Options pattern. Your options class, with the DataAnnotations
+you already use, becomes a contract that your Kubernetes platform checks **before deploy**, and that your
+app checks again **at startup**. It covers environment variables, `appsettings*.json`, and file inputs:
+TLS key pairs, CA bundles, keystores, JSON config files and licence files.
+
+Part of [docuconf](https://github.com/docuconf). See the
+[specification](https://github.com/docuconf/docuconf-go/blob/main/spec/SPEC.md).
+
+> **Status:** `0.1.0-alpha`. The contract format is a draft (`v1alpha1`) and the API may change.
+
+## Declare
+
+```csharp
+[ConfigContract("billing-api", Section = "Billing")]
+public sealed class BillingOptions
+{
+    [Required, Secret, UrlSchemes("postgres", "postgresql")]
+    [Description("Primary Postgres connection string")]
+    public string DatabaseUrl { get; set; } = "";
+
+    [Range(1, 65535), Description("HTTP listen port")]
+    public int Port { get; set; } = 8080;
+
+    [Required]
+    [TlsFile("/etc/billing/tls", DnsNames = ["billing.internal"], MinRemaining = "720h", Reload = Reload.Watch)]
+    [Description("Certificate the API serves HTTPS with")]
+    public TlsKeyPair ServingCertificate { get; set; } = new();
+
+    [Required, ConfigFile("/etc/billing/rates/rates.json")]
+    [Description("Pricing tiers by monthly volume")]
+    public RatesConfig Rates { get; set; } = new();
+}
+```
+
+Everything else is ordinary .NET: `[Required]`, `[Range]`, `[MinLength]`, `[RegularExpression]`, `[AllowedValues]`
+and `[Url]` become contract constraints. `Description` is required, because every input in a contract is documented.
+
+| Attribute | Input |
+|---|---|
+| `[Secret]` | Must come from a Kubernetes Secret; never printed. |
+| `[UrlSchemes("https")]` | A URL with an allowed scheme. |
+| `[TlsFile(dir)]` on a `TlsKeyPair` | `tls.crt`, `tls.key`, optional `ca.crt`. Checked for key match, expiry (`MinRemaining`), `DnsNames`, `KeyAlgorithms`, and the chain to `ca.crt` (`RequireCA`). `.Current` reloads rotated certificates. |
+| `[ConfigFile(path)]` on any class | A JSON file deserialized into that class. The contract carries a JSON Schema generated from it, so the platform checks the file against the same type. |
+| `[CaBundleFile(path)]` on a `CaBundle` | PEM CA certificates. |
+| `[KeystoreFile(path, PasswordProperty = ...)]` on a `Keystore` | A PKCS#12 keystore; its password is a `[Secret]` property. |
+| `[TextFile(path, Pattern = ...)]` on a `string` | A text file such as a licence key; the property receives the content. |
+| `[BinaryFile(path)]` on a `BinaryFile` | Opaque bytes. |
+| `[External("KeyVault")]` | Supplied by a provider the platform does not control; left out of the contract. |
+
+## Validate at startup
+
+```csharp
+if (DocuconfExport.RunIfRequested(args)) return;   // see Export below
+
+var builder = WebApplication.CreateBuilder(args);
+builder.Services.AddDocuconf<BillingOptions>();     // binds, loads files, ValidateOnStart
+```
+
+Startup fails with every problem at once, each with a stable code, and secrets redacted:
+
+```
+OptionsValidationException: [file_missing] rates: /etc/billing/rates/rates.json does not exist;
+[invalid_scheme] BILLING__DATABASEURL: must use one of the schemes postgres, postgresql;
+[out_of_range] BILLING__PORT: The field Port must be between 1 and 65535.;
+[missing_required] BILLING__WAREHOUSEAPI: is required (Billing:WarehouseApi)
+```
+
+The same lines go to `/dev/termination-log`, so `kubectl describe pod` shows them. For local development, set
+`DOCUCONF_FILE_ROOT=./dev` to read `/etc/billing/tls` from `./dev/etc/billing/tls`.
+
+## Export
+
+Run the published app with `docuconf export`:
+
+```sh
+dotnet publish -c Release -o out
+dotnet out/Billing.Api.dll docuconf export contract.cue
+```
+
+The contract includes the `appsettings.json` values that ship with the app as defaults, and
+`appsettings.{Environment}.json` values as profiles selected by `ASPNETCORE_ENVIRONMENT`, so a value set in
+`appsettings.Production.json` counts as supplied. A `[Secret]` value in any appsettings file is an export error.
+Variable names follow the configuration path: `Billing:Port` is `BILLING__PORT`. The contract records that .NET
+reads `TimeSpan` as `hh:mm:ss` and lists as `NAME__0`, `NAME__1`, so the platform renders values that way.
+
+## Develop
+
+```sh
+dotnet test   # needs the cue CLI for the contract checks: go install cuelang.org/go/cmd/cue@v0.17.1
+```
+
+`samples/Billing.Api` uses every input kind. The tests check exported contracts against a copy of the CUE
+meta-schema in `tests/Docuconf.Tests/spec`; refresh it with `scripts/sync-spec.sh`.
+
+Licence: pending (Apache-2.0 proposed).

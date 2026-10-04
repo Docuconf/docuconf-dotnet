@@ -1,0 +1,27 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+      # The export tests check contracts against the CUE meta-schema.
+      - run: go install cuelang.org/go/cmd/cue@v0.17.1
+      - run: dotnet build -c Release
+      - run: dotnet test -c Release --no-build

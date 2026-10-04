@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFrameworks>net8.0;net10.0</TargetFrameworks>
+    <RootNamespace>Docuconf</RootNamespace>
+    <PackageId>Docuconf.Options</PackageId>
+    <Version>0.1.0-alpha.1</Version>
+    <Description>Typed configuration contracts for the .NET Options pattern and appsettings, validated by your Kubernetes platform before deploy and by your app at startup.</Description>
+    <PackageTags>configuration;options;kubernetes;cue;crossplane;validation</PackageTags>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <IsTrimmable>false</IsTrimmable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="10.0.12" />
+    <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="10.0.12" />
+    <PackageReference Include="Microsoft.Extensions.Options.DataAnnotations" Version="10.0.12" />
+    <!-- JsonSchemaExporter ships in System.Text.Json 9+, so net8.0 needs the package. -->
+    <PackageReference Include="System.Text.Json" Version="10.0.12" Condition="'$(TargetFramework)' == 'net8.0'" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Docuconf.Tests" />
+  </ItemGroup>
+
+</Project>
