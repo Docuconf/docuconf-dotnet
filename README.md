@@ -145,4 +145,4 @@ startup validation. Releases are published from CI with NuGet trusted publishing
 `samples/Billing.Api` uses every input kind. The tests check exported contracts against a copy of the CUE
 meta-schema in `tests/Docuconf.Tests/spec`; refresh it with `scripts/sync-spec.sh`.
 
-Licence: pending (Apache-2.0 proposed).
+Licence: [MIT](LICENSE).
