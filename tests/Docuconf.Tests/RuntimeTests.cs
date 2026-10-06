@@ -190,4 +190,39 @@ public sealed class RuntimeTests : IDisposable
 
         Assert.Contains("[out_of_range] GATEWAY__PORT", File.ReadAllText(log), StringComparison.Ordinal);
     }
+
+    [Theory]
+    [InlineData("vault:secret/data/gw#url", "vault:")]
+    [InlineData("op://prod/gw/database-url", "op://")]
+    [InlineData("ref+awssecrets://gw/database-url", "ref+")]
+    public void Unresolved_injector_references_in_secrets_are_reported_without_the_value(string reference, string scheme)
+    {
+        var log = Path.Join(_files.Root, "termination-log");
+        File.WriteAllText(log, "");
+        var config = _files.Config();
+        config["Gateway:DatabaseUrl"] = reference;
+
+        var ex = Assert.Throws<OptionsValidationException>(() => _files.Resolve<GatewayOptions>(config, terminationLog: log));
+
+        Assert.Equal(["invalid_type"], Codes(ex));
+        Assert.Equal(
+            $"[invalid_type] GATEWAY__DATABASEURL: holds an unresolved {scheme} reference; the injector that should resolve it did not run",
+            ex.Failures.Single());
+        var written = File.ReadAllText(log);
+        Assert.Contains($"unresolved {scheme} reference", written, StringComparison.Ordinal);
+        Assert.DoesNotContain(reference, written, StringComparison.Ordinal);
+        Assert.DoesNotContain(reference, ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Resolved_secrets_and_non_secret_values_are_not_taken_for_references()
+    {
+        var config = _files.Config();
+        config["Gateway:KeystorePassword"] = "s3cret";
+        config["Gateway:Brokers:0"] = "vault:9092"; // not secret: an ordinary value
+
+        var options = _files.Resolve<GatewayOptions>(config);
+
+        Assert.Equal("vault:9092", Assert.Single(options.Brokers));
+    }
 }

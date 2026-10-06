@@ -111,7 +111,9 @@ its own: the platform mounts the directory, so it must not hold your app's files
 
 Secrets injected at startup — by Bank-Vaults' `vault-env`, a wrapper such as `op run`, or the Vault Agent — need
 nothing special: docuconf validates the environment and files as they are when the process starts, after
-injection. On the platform side they are declared as `injected` values (SPEC §4.5.1).
+injection. On the platform side they are declared as `injected` values (SPEC §4.5.1). If a `[Secret]` value still
+holds a reference when the app starts (it begins with `vault:`, `op://` or `ref+`), the injector did not run, and
+startup fails with `invalid_type` naming the variable and the reference scheme, never the value.
 
 ## Develop
 

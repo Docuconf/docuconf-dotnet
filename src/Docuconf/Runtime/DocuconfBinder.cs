@@ -54,6 +54,14 @@ internal static class DocuconfBinder
                 continue;
             }
 
+            if (spec.Secret && InjectorReference.SchemeOf(section.Value) is { } scheme)
+            {
+                // The value is a reference such as vault:secret/data/db#url, still unresolved. Never print it.
+                violations.Add(new Violation(Codes.InvalidType, spec.Name,
+                    $"holds an unresolved {scheme} reference; the injector that should resolve it did not run"));
+                continue;
+            }
+
             try
             {
                 SetPath(target, spec.PropertyPath, Convert(section, spec));
