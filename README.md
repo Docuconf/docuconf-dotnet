@@ -156,8 +156,9 @@ are typed: `long` for `int`, `double`, `bool`, `TimeSpan` for `duration`, `Uri` 
 `IReadOnlyList<long>` for lists, a `JsonNode` for `json`, `string` otherwise; an absent optional value is null. Every
 wire encoding is read, as the contract's `encoding` says: lists as `csv` (with its `separator`), `json` or `indexed`
 (`NAME__0`, `NAME__1`), durations as `go`, `iso8601`, `seconds` or `timespan`. Values go through the same parsers and
-constraint checks as options classes. The mode covers variables only: file inputs are not read, and `json` values are
-parsed but not checked against their JSON Schema.
+constraint checks as options classes. The mode covers variables, with the defaults of the profile the contract's
+selector picks; file inputs and overlays are not read, and `json` values are parsed but not checked against their JSON
+Schema.
 
 ## Conformance
 

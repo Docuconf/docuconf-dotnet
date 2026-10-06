@@ -17,8 +17,8 @@ namespace Docuconf;
 /// Every wire encoding of SPEC §5 is parsed: lists as <c>csv</c> (with the contract's <c>separator</c>), <c>json</c> or
 /// <c>indexed</c> (<c>NAME__0</c>, <c>NAME__1</c>, ...), durations as <c>go</c>, <c>iso8601</c>, <c>seconds</c> or
 /// <c>timespan</c>. Values are checked with the same parsers and constraint checks as declared options. The mode
-/// covers variables: <c>json</c> values are parsed but not checked against their JSON Schema, and file inputs,
-/// profiles and overlays are not read.
+/// covers variables, with the defaults of the profile the contract's selector picks: <c>json</c> values are parsed
+/// but not checked against their JSON Schema, and file inputs and overlays are not read.
 /// </remarks>
 /// <example>
 /// <code>
@@ -49,11 +49,20 @@ public sealed class DocuconfContract
     public ContractLoadResult Validate(IReadOnlyDictionary<string, string>? environment = null)
     {
         environment ??= ProcessEnvironment();
+
+        // The selected profile's defaults (SPEC §4.4) stand in for the variables' own; the environment overrides both.
+        IReadOnlyDictionary<string, object>? profileDefaults = null;
+        if (Model.Profiles is { } profiles)
+        {
+            var profile = environment.TryGetValue(profiles.Selector, out var selected) && selected.Length > 0 ? selected : profiles.Default;
+            profileDefaults = profiles.Defaults.GetValueOrDefault(profile);
+        }
+
         var values = new Dictionary<string, object?>(StringComparer.Ordinal);
         var violations = new List<Violation>();
         foreach (var spec in Model.Vars.Values)
         {
-            values[spec.Name] = ContractFirstLoader.Load(spec, environment, violations);
+            values[spec.Name] = ContractFirstLoader.Load(spec, profileDefaults?.GetValueOrDefault(spec.Name), environment, violations);
         }
 
         return new ContractLoadResult(new ContractValues(values), violations);
@@ -142,7 +151,7 @@ internal static partial class ContractFirstLoader
     [GeneratedRegex(@"^(?<name>[A-Z][A-Z0-9_]*)__(?<index>[0-9]+)$")]
     private static partial Regex IndexedKey();
 
-    public static object? Load(VarSpec spec, IReadOnlyDictionary<string, string> env, List<Violation> violations)
+    public static object? Load(VarSpec spec, object? profileDefault, IReadOnlyDictionary<string, string> env, List<Violation> violations)
     {
         // Indexed lists arrive as NAME__0, NAME__1, ... in index order, as Microsoft.Extensions.Configuration binds them.
         List<string>? indexed = null;
@@ -165,6 +174,11 @@ internal static partial class ContractFirstLoader
         bool present = indexed is not null ? indexed.Count > 0 : raw is not null && (raw.Length > 0 || spec.Type == VarType.String);
         if (!present)
         {
+            if (profileDefault is not null)
+            {
+                return Output(spec, profileDefault);
+            }
+
             if (spec.Required)
             {
                 violations.Add(new Violation(Codes.MissingRequired, spec.Name, "is required"));

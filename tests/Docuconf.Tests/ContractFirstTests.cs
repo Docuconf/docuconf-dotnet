@@ -61,6 +61,39 @@ public sealed class ContractFirstTests
         Assert.Contains("vars.B: items must be \"string\" or \"int\".", ex.Errors);
     }
 
+    [Fact]
+    public void The_selected_profile_supplies_defaults()
+    {
+        var contract = DocuconfContract.FromJson("""
+            {
+              "apiVersion": "docuconf.dev/v1alpha1", "kind": "ConfigContract", "metadata": {"name": "inventory"},
+              "vars": {
+                "DOTNET_ENVIRONMENT": {"type": "string", "description": "Hosting environment", "default": "Production"},
+                "WAREHOUSE": {"type": "url", "description": "Warehouse API", "required": true},
+                "TTL": {"type": "duration", "description": "Cache lifetime", "encoding": "timespan", "default": "5m"}
+              },
+              "profiles": {
+                "selector": "DOTNET_ENVIRONMENT", "default": "Production",
+                "defaults": {
+                  "Production": {"WAREHOUSE": "https://warehouse.internal", "TTL": "1h"},
+                  "Staging": {"WAREHOUSE": "https://warehouse.staging.internal"}
+                }
+              }
+            }
+            """);
+
+        var production = contract.Load(new Dictionary<string, string>());
+        Assert.Equal("https://warehouse.internal", production.Get<Uri>("WAREHOUSE")!.OriginalString);
+        Assert.Equal(TimeSpan.FromHours(1), production.Get<TimeSpan>("TTL"));
+
+        var staging = contract.Load(new Dictionary<string, string> { ["DOTNET_ENVIRONMENT"] = "Staging", ["TTL"] = "00:00:10" });
+        Assert.Equal("https://warehouse.staging.internal", staging.Get<Uri>("WAREHOUSE")!.OriginalString);
+        Assert.Equal(TimeSpan.FromSeconds(10), staging.Get<TimeSpan>("TTL"));
+
+        var development = contract.Validate(new Dictionary<string, string> { ["DOTNET_ENVIRONMENT"] = "Development" });
+        Assert.Equal("missing_required", Assert.Single(development.Violations).Code);
+    }
+
     // The contract this SDK exports, read back in contract-first mode, accepts what the platform renders for the app
     // (indexed lists, timespan durations) and agrees with the options class.
     [Fact]

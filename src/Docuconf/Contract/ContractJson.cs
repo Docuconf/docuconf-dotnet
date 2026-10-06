@@ -6,7 +6,8 @@ namespace Docuconf.Contract;
 
 /// <summary>
 /// Reads a contract exported as JSON (<c>cue export contract.cue --out json</c>) into a <see cref="ContractModel"/>
-/// for the contract-first mode. Reads the variables; file inputs, profiles and overlays are not checked in that mode.
+/// for the contract-first mode. Reads the variables and profile defaults; file inputs and overlays are not checked in
+/// that mode.
 /// </summary>
 internal static partial class ContractJson
 {
@@ -70,12 +71,48 @@ internal static partial class ContractJson
             errors.Add("vars must be an object.");
         }
 
+        if (doc["profiles"] is JsonObject profiles)
+        {
+            ReadProfiles(profiles, model, errors);
+        }
+
         if (errors.Count > 0)
         {
             throw new ContractException(errors);
         }
 
         return model;
+    }
+
+    /// <summary>Profile defaults (SPEC §4.4), typed like variable defaults.</summary>
+    private static void ReadProfiles(JsonObject p, ContractModel model, List<string> errors)
+    {
+        var selector = p["selector"]?.GetValue<string>();
+        if (selector is null || !model.Vars.ContainsKey(selector))
+        {
+            errors.Add($"profiles.selector '{selector}' must name a declared variable.");
+            return;
+        }
+
+        var profiles = new ProfilesSpec { Selector = selector, Default = p["default"]?.GetValue<string>() ?? "Production" };
+        foreach (var (profile, values) in p["defaults"] as JsonObject ?? [])
+        {
+            var defaults = new SortedDictionary<string, object>(StringComparer.Ordinal);
+            foreach (var (name, value) in values as JsonObject ?? [])
+            {
+                if (!model.Vars.TryGetValue(name, out var spec) || value is null)
+                {
+                    errors.Add($"profiles.defaults.{profile}.{name} must name a declared variable and hold a value.");
+                    continue;
+                }
+
+                defaults[name] = TypedDefault(spec, value)!;
+            }
+
+            profiles.Defaults[profile] = defaults;
+        }
+
+        model.Profiles = profiles;
     }
 
     private static VarSpec? ReadVar(string name, JsonObject v, List<string> errors)
