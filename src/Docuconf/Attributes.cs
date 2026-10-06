@@ -43,6 +43,21 @@ public sealed class EnvNameAttribute(string name) : Attribute
 }
 
 /// <summary>
+/// The property is a <c>json</c> variable (SPEC §4.3): a structured value, such as a rate-limit object, that the
+/// platform supplies as one environment variable holding compact JSON. The contract carries a JSON Schema generated
+/// from the property's type, so the platform checks the value against the type the app binds.
+/// </summary>
+/// <remarks>
+/// The variable binds from either form Microsoft.Extensions.Configuration can hold at the property's key: a JSON
+/// string (the environment variable, <c>BILLING__RATELIMIT={"rps":10}</c>) or a nested section (an appsettings file
+/// or overlay, <c>{"Billing": {"RateLimit": {"rps": 10}}}</c>). A JSON string is read with the same rules as a
+/// config file: camelCase names, read case-insensitively, enums as strings, unknown properties rejected.
+/// DataAnnotations on the type are checked at startup.
+/// </remarks>
+[AttributeUsage(AttributeTargets.Property)]
+public sealed class JsonVarAttribute : Attribute;
+
+/// <summary>
 /// The value comes from a configuration provider the platform does not control, such as Azure Key Vault,
 /// so it is left out of the contract.
 /// </summary>

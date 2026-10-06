@@ -54,6 +54,8 @@ public enum VarType
     Enum,
     /// <summary>A list of strings or integers.</summary>
     List,
+    /// <summary>A structured value sent as JSON, checked against <see cref="VarSpec.Schema"/>.</summary>
+    Json,
 }
 
 /// <summary>One environment variable in the contract.</summary>
@@ -71,7 +73,7 @@ public sealed class VarSpec
     public bool Required { get; set; }
     /// <summary>Whether it is secret.</summary>
     public bool Secret { get; init; }
-    /// <summary>The default: string, long, double, bool, string list or long list.</summary>
+    /// <summary>The default: string, long, double, bool, string list, long list, or a JSON node for a json variable.</summary>
     public object? Default { get; set; }
     /// <summary>Numeric lower bound (int, float) or duration lower bound in Go syntax.</summary>
     public object? Min { get; init; }
@@ -93,6 +95,8 @@ public sealed class VarSpec
     public int? MinItems { get; init; }
     /// <summary>Greatest list length.</summary>
     public int? MaxItems { get; init; }
+    /// <summary>A json variable's JSON Schema, generated from its type.</summary>
+    public JsonNode? Schema { get; init; }
 
     internal IReadOnlyList<PropertyInfo>? PropertyPath { get; init; }
     internal Type? ClrType { get; init; }

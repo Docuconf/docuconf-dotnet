@@ -85,6 +85,24 @@ The contract includes the `appsettings.json` values that ship with the app as de
 Variable names follow the configuration path: `Billing:Port` is `BILLING__PORT`. The contract records that .NET
 reads `TimeSpan` as `hh:mm:ss` and lists as `NAME__0`, `NAME__1`, so the platform renders values that way.
 
+## Structured values
+
+A property marked `[JsonVar]` is a `json` variable: one environment variable holding compact JSON, bound to your
+own type. The contract carries a JSON Schema generated from the type, so the platform checks the value before
+deploy, and docuconf checks it again at startup with the type's DataAnnotations.
+
+```csharp
+[Required, JsonVar]
+[Description("Rate limit for the public API")]
+public RateLimit Limits { get; set; } = null!;   // BILLING__LIMITS={"rps":10,"burst":20}
+```
+
+The value is read like a config file (camelCase names, read case-insensitively; enums as strings; unknown
+properties rejected). In `appsettings.json` or an overlay it can also be an ordinary nested section, which the
+configuration binder fills, so the platform can render it into an overlay as an object. An initializer or an
+appsettings value becomes the contract `default` and must satisfy the type's constraints. A JSON string replaces the
+whole object; a nested section merges key by key with lower layers, as configuration sections always do.
+
 ## Platform overlays and injected secrets
 
 A platform can supply settings as a file in your own appsettings format instead of environment variables. Declare
@@ -111,7 +129,9 @@ its own: the platform mounts the directory, so it must not hold your app's files
 
 Secrets injected at startup — by Bank-Vaults' `vault-env`, a wrapper such as `op run`, or the Vault Agent — need
 nothing special: docuconf validates the environment and files as they are when the process starts, after
-injection. On the platform side they are declared as `injected` values (SPEC §4.5.1).
+injection. On the platform side they are declared as `injected` values (SPEC §4.5.1). If a `[Secret]` value still
+holds a reference when the app starts (it begins with `vault:`, `op://` or `ref+`), the injector did not run, and
+startup fails with `invalid_type` naming the variable and the reference scheme, never the value.
 
 ## Develop
 

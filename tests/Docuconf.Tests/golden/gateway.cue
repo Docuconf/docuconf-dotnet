@@ -48,6 +48,40 @@ contract.#Contract & {
 			max: 65535
 			default: 9000
 		}
+		GATEWAY__RATELIMIT: {
+			type: "json"
+			description: "Per-client rate limit"
+			configKey: "Gateway:RateLimit"
+			schema: {
+				"type": "object",
+				"properties": {
+					"rps": {
+						"type": "integer",
+						"description": "Requests per second",
+						"minimum": 1,
+						"maximum": 10000
+					},
+					"burst": {
+						"type": "integer",
+						"description": "Extra requests allowed in a burst",
+						"minimum": 0,
+						"maximum": 10000
+					},
+					"key": {
+						"type": "string",
+						"description": "What identifies a client",
+						"enum": [
+							"ip",
+							"token"
+						]
+					}
+				},
+				"additionalProperties": false,
+				"required": [
+					"rps"
+				]
+			}
+		}
 		GATEWAY__TIMEOUT: {
 			type: "duration"
 			description: "Upstream request timeout"

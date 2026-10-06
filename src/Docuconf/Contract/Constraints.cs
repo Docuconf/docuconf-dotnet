@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 
 namespace Docuconf.Contract;
@@ -49,6 +50,8 @@ internal static class Constraints
                 return null;
             case VarType.Bool when value is bool:
                 return null;
+            case VarType.Json when value is JsonNode node:
+                return JsonVar.Check(spec, node);
             default:
                 return $"is not a valid {spec.Type.ToString().ToLowerInvariant()}";
         }
@@ -61,6 +64,7 @@ internal static class Constraints
         bool b => b ? "true" : "false",
         double d => d.ToString("R", CultureInfo.InvariantCulture),
         List<object> list => "[" + string.Join(", ", list.Select(Show)) + "]",
+        JsonNode node => node.ToJsonString(),
         _ => Convert.ToString(value, CultureInfo.InvariantCulture) ?? "",
     };
 }

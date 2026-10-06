@@ -100,7 +100,7 @@ internal static class AppSettingsReader
         {
             value = Convert(section, spec);
         }
-        catch (Exception ex) when (ex is FormatException or OverflowException or ArgumentException)
+        catch (Exception ex) when (ex is FormatException or OverflowException or ArgumentException or System.Text.Json.JsonException or InvalidOperationException)
         {
             errors.Add($"{fileName}: {spec.ConfigKey} is not a valid {spec.Type.ToString().ToLowerInvariant()}: {ex.Message}");
             return null;
@@ -117,6 +117,11 @@ internal static class AppSettingsReader
 
     private static object? Convert(IConfigurationSection section, VarSpec spec)
     {
+        if (spec.Type == VarType.Json)
+        {
+            return JsonVar.Bind(section, spec.ClrType!) is { } bound ? JsonVar.ToNode(bound, spec.ClrType!) : null;
+        }
+
         if (spec.Type == VarType.List)
         {
             var items = section.GetChildren()
