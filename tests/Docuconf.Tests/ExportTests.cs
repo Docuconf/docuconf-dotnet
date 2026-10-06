@@ -2,6 +2,9 @@ using System.ComponentModel;
 using System.ComponentModel.DataAnnotations;
 using System.Diagnostics;
 using Docuconf.Contract;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 
 namespace Docuconf.Tests;
 
@@ -67,6 +70,83 @@ public sealed class ExportTests : IDisposable
         Assert.Equal(0, Cue(module, "vet", "-d", "#Routes", "routes.cue", "good.json").Exit);
         Assert.NotEqual(0, Cue(module, "vet", "-d", "#Routes", "routes.cue", "extra.json").Exit);
         Assert.NotEqual(0, Cue(module, "vet", "-d", "#Routes", "routes.cue", "nomatch.json").Exit);
+    }
+
+    [Fact]
+    public void Overlays_are_exported_and_pass_the_meta_schema()
+    {
+        var cue = Export(typeof(CatalogOptions));
+
+        Assert.Contains("""
+            	overlays: {
+            		platform: {
+            			description: "Platform overrides, layered over the appsettings files"
+            			format: "json"
+            			path: "/app/config/appsettings.Production.json"
+            			keySeparator: ":"
+            			reload: "watch"
+            		}
+            	}
+            """.Replace("\r\n", "\n", StringComparison.Ordinal), cue, StringComparison.Ordinal);
+        var (exit, output) = Cue(CueModule(cue), "vet", "-c", "./out");
+        Assert.True(exit == 0, output);
+    }
+
+    [Fact]
+    public void Bad_overlay_declarations_are_all_reported()
+    {
+        var ex = Assert.Throws<ContractException>(() => Export(typeof(BrokenOverlayOptions)));
+
+        Assert.Contains(ex.Errors, e => e.Contains("[ConfigOverlay(\"Platform\")]: the name must be a DNS label", StringComparison.Ordinal));
+        Assert.Contains(ex.Errors, e => e.Contains("path 'app/config/settings.json' must be an absolute", StringComparison.Ordinal));
+        Assert.Contains(ex.Errors, e => e.Contains("path '/app/yaml/settings.yaml' must be a .json file", StringComparison.Ordinal));
+        Assert.Contains(ex.Errors, e => e.Contains("Overlays one, two share the directory /app/shared", StringComparison.Ordinal));
+    }
+
+    // End to end: the platform renders the overlay from the exported contract with the CUE meta-schema, and the
+    // app binds the rendered file through AddDocuconfOverlays.
+    [Fact]
+    public void An_overlay_rendered_by_the_platform_binds_in_the_app()
+    {
+        var module = CueModule(Export(typeof(CatalogOptions)));
+        Directory.CreateDirectory(Path.Join(module, "platform"));
+        File.WriteAllText(Path.Join(module, "platform", "render.cue"), """
+            package platform
+
+            import (
+            	"docuconf.dev/contract"
+            	app "docuconf.dev/out:catalog"
+            )
+
+            rendered: contract.#Render & {
+            	contract: app
+            	overlays: platform: {
+            		CATALOG__PAGESIZE:   50
+            		CATALOG__CACHETTL:   "1m30s"
+            		CATALOG__SEARCHURL:  "https://search.internal"
+            		CATALOG__FEATUREDCATEGORIES: ["books", "games"]
+            	}
+            }
+            file: rendered.configMaps[0].data["appsettings.Production.json"]
+            """);
+        var (exit, output) = Cue(module, "export", "./platform", "-e", "file", "--out", "text");
+        Assert.True(exit == 0, output);
+
+        var overlay = Path.Join(_root, "app", "config", "appsettings.Production.json");
+        Directory.CreateDirectory(Path.GetDirectoryName(overlay)!);
+        File.WriteAllText(overlay, output);
+        var config = new ConfigurationBuilder()
+            .AddDocuconfOverlays<CatalogOptions>(s => s.FileRoot = _root)
+            .Build();
+        var services = new ServiceCollection().AddSingleton<IConfiguration>(config);
+        services.AddDocuconf<CatalogOptions>(s => s.FileRoot = _root);
+        using var provider = services.BuildServiceProvider();
+        var options = provider.GetRequiredService<IOptions<CatalogOptions>>().Value;
+
+        Assert.Equal(50, options.PageSize);
+        Assert.Equal(TimeSpan.FromSeconds(90), options.CacheTtl);
+        Assert.Equal("https://search.internal", options.SearchUrl);
+        Assert.Equal(["books", "games"], options.FeaturedCategories);
     }
 
     [Fact]

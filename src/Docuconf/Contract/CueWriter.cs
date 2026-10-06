@@ -59,6 +59,27 @@ public static partial class CueWriter
             w.Close();
         }
 
+        if (model.Overlays.Count > 0)
+        {
+            w.Open("overlays: {");
+            foreach (var o in model.Overlays.Values)
+            {
+                w.Open($"{Label(o.Name)}: {{");
+                if (o.Description is not null)
+                {
+                    w.Field("description", Str(o.Description));
+                }
+
+                w.Field("format", Str("json"));
+                w.Field("path", Str(o.Path));
+                w.Field("keySeparator", Str(":"));
+                w.Field("reload", Str(o.ReloadOnChange ? "watch" : "restart"));
+                w.Close();
+            }
+
+            w.Close();
+        }
+
         if (model.Profiles is { } profiles)
         {
             w.Open("profiles: {");

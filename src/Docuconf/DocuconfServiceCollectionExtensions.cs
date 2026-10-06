@@ -46,6 +46,9 @@ public static class DocuconfServiceCollectionExtensions
 
         services.AddSingleton<IConfigureOptions<T>>(sp => new DocuconfConfigureOptions<T>(sp.GetRequiredService<IConfiguration>(), settings));
         services.AddSingleton<IValidateOptions<T>>(sp => new DocuconfValidateOptions<T>(sp.GetRequiredService<IConfiguration>(), settings));
+        // Without a change token source IOptionsMonitor<T> never sees configuration reloads, such as an overlay
+        // declared with ReloadOnChange (SPEC §4.7) or reloadOnChange appsettings.
+        services.AddSingleton<IOptionsChangeTokenSource<T>>(sp => new ConfigurationChangeTokenSource<T>(sp.GetRequiredService<IConfiguration>()));
         return services.AddOptions<T>().ValidateOnStart();
     }
 }

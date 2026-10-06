@@ -159,3 +159,31 @@ public sealed class TextFileAttribute(string path) : FileInputAttribute(path)
 /// <summary>Opaque bytes, such as a GeoIP database. The property must be a <see cref="BinaryFile"/>.</summary>
 [AttributeUsage(AttributeTargets.Property)]
 public sealed class BinaryFileAttribute(string path) : FileInputAttribute(path);
+
+/// <summary>
+/// Declares a config-file overlay (SPEC §4.7): one more JSON appsettings file the platform mounts, layered between
+/// the appsettings files the app ships with and environment variables. Load declared overlays with
+/// <c>builder.Configuration.AddDocuconfOverlays&lt;T&gt;()</c>; <c>docuconf export</c> puts them in the contract so
+/// the platform can render values into them.
+/// </summary>
+/// <param name="name">The overlay's name in the contract: a DNS label such as <c>platform</c>.</param>
+/// <param name="path">Where the platform mounts the file, such as <c>/app/config/appsettings.Production.json</c>.
+/// Its directory must not hold files the app ships with, because the mount hides them.</param>
+[AttributeUsage(AttributeTargets.Class | AttributeTargets.Assembly, AllowMultiple = true)]
+public sealed class ConfigOverlayAttribute(string name, string path) : Attribute
+{
+    /// <summary>The overlay's name in the contract.</summary>
+    public string Name { get; } = name;
+
+    /// <summary>Where the platform mounts the file.</summary>
+    public string Path { get; } = path;
+
+    /// <summary>
+    /// Reload the file when the platform updates it (<c>reloadOnChange</c>); read values through
+    /// <c>IOptionsMonitor&lt;T&gt;</c> to see them. When false, a change rolls the pods instead.
+    /// </summary>
+    public bool ReloadOnChange { get; init; }
+
+    /// <summary>What the overlay is for, at least 5 characters.</summary>
+    public string? Description { get; init; }
+}

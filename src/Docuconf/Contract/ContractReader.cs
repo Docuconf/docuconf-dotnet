@@ -47,6 +47,52 @@ public static partial class ContractReader
     [GeneratedRegex(@"\(\?[=!<>]|\(\?<[=!]|\\[1-9]|\\k<|\(\?>|[*+?}]\+")]
     private static partial Regex NonRe2();
 
+    /// <summary>The <see cref="ConfigOverlayAttribute"/>s on the given options classes and their assemblies.</summary>
+    internal static IReadOnlyList<ConfigOverlayAttribute> OverlaysOf(IEnumerable<Type> types) =>
+        types.SelectMany(t => t.GetCustomAttributes<ConfigOverlayAttribute>())
+            .Concat(types.Select(t => t.Assembly).Distinct().SelectMany(a => a.GetCustomAttributes<ConfigOverlayAttribute>()))
+            .ToList();
+
+    private static void ReadOverlays(IEnumerable<Type> types, ContractModel model, List<string> errors)
+    {
+        foreach (var o in OverlaysOf(types))
+        {
+            var where = $"[ConfigOverlay(\"{o.Name}\")]";
+            if (!InputNameSyntax().IsMatch(o.Name))
+            {
+                errors.Add($"{where}: the name must be a DNS label of lowercase letters, digits and hyphens, starting with a letter.");
+            }
+
+            if (!o.Path.StartsWith('/') || o.Path.Contains("/../", StringComparison.Ordinal) || o.Path.Contains("//", StringComparison.Ordinal) || o.Path.EndsWith('/'))
+            {
+                errors.Add($"{where}: path '{o.Path}' must be an absolute, normalised path to a file.");
+            }
+            else if (!o.Path.EndsWith(".json", StringComparison.OrdinalIgnoreCase))
+            {
+                errors.Add($"{where}: path '{o.Path}' must be a .json file; overlays are loaded as JSON appsettings.");
+            }
+
+            if (o.Description is { Length: < 5 })
+            {
+                errors.Add($"{where}: the description must be at least 5 characters.");
+            }
+
+            var spec = new OverlaySpec(o.Name, o.Path, o.ReloadOnChange, o.Description);
+            if (model.Overlays.TryGetValue(o.Name, out var existing) && existing != spec)
+            {
+                errors.Add($"{where} is declared twice, differently.");
+            }
+
+            model.Overlays[o.Name] = spec;
+        }
+
+        var byDir = model.Overlays.Values.GroupBy(o => System.IO.Path.GetDirectoryName(o.Path)).Where(g => g.Count() > 1);
+        foreach (var group in byDir)
+        {
+            errors.Add($"Overlays {string.Join(", ", group.Select(o => o.Name))} share the directory {group.Key}; each needs its own, because the platform mounts the directory.");
+        }
+    }
+
     /// <summary>Reads every <see cref="ConfigContractAttribute"/> class in <paramref name="assembly"/>.</summary>
     public static ContractModel Read(Assembly assembly, ContractReadSettings? settings = null)
     {
@@ -90,6 +136,7 @@ public static partial class ContractReader
         }
 
         ResolveKeystorePasswords(model, pending, errors);
+        ReadOverlays(types, model, errors);
 
         if (settings.ContentRoot is not null)
         {

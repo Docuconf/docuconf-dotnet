@@ -15,6 +15,9 @@ public sealed class ContractModel
     /// <summary>File inputs, keyed by input name.</summary>
     public SortedDictionary<string, FileSpec> Files { get; } = new(StringComparer.Ordinal);
 
+    /// <summary>Config-file overlays the platform may mount (SPEC §4.7), keyed by name.</summary>
+    public SortedDictionary<string, OverlaySpec> Overlays { get; } = new(StringComparer.Ordinal);
+
     /// <summary>Profiles from <c>appsettings.{Environment}.json</c>, or null when there are none.</summary>
     public ProfilesSpec? Profiles { get; set; }
 
@@ -24,6 +27,13 @@ public sealed class ContractModel
     /// <summary>Properties outside the contract that still bind from configuration: [External] ones and shapes env vars cannot carry.</summary>
     internal List<(string Key, IReadOnlyList<PropertyInfo> Path)> Unmodeled { get; } = [];
 }
+
+/// <summary>A config-file overlay: a JSON appsettings file the platform mounts (SPEC §4.7).</summary>
+/// <param name="Name">The overlay's name, a DNS label.</param>
+/// <param name="Path">Where the platform mounts the file.</param>
+/// <param name="ReloadOnChange">Whether the app reloads the file when it changes.</param>
+/// <param name="Description">What the overlay is for, if given.</param>
+public sealed record OverlaySpec(string Name, string Path, bool ReloadOnChange, string? Description);
 
 /// <summary>Contract variable types (SPEC §4.3).</summary>
 public enum VarType

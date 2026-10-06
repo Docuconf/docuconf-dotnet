@@ -85,6 +85,34 @@ The contract includes the `appsettings.json` values that ship with the app as de
 Variable names follow the configuration path: `Billing:Port` is `BILLING__PORT`. The contract records that .NET
 reads `TimeSpan` as `hh:mm:ss` and lists as `NAME__0`, `NAME__1`, so the platform renders values that way.
 
+## Platform overlays and injected secrets
+
+A platform can supply settings as a file in your own appsettings format instead of environment variables. Declare
+the file on the options class; docuconf loads it between your baked-in appsettings files and environment
+variables, and puts it in the contract so the platform renders values into it:
+
+```csharp
+[ConfigContract("catalog", Section = "Catalog")]
+[ConfigOverlay("platform", "/app/config/appsettings.Production.json", ReloadOnChange = true)]
+public sealed class CatalogOptions { /* ... */ }
+```
+
+```csharp
+var builder = WebApplication.CreateBuilder(args);
+builder.Configuration.AddDocuconfOverlays<CatalogOptions>();   // appsettings < overlay < environment
+builder.Services.AddDocuconf<CatalogOptions>();
+```
+
+This is the same as `AddJsonFile("/app/config/appsettings.Production.json", optional: true, reloadOnChange: true)`,
+placed before environment variables even though `CreateBuilder` has already added them, and watched by polling,
+because Kubernetes updates a mounted ConfigMap by swapping a symlink. Read reloadable values through
+`IOptionsMonitor<CatalogOptions>`. Overlay values are validated like any other. Keep the overlay in a directory of
+its own: the platform mounts the directory, so it must not hold your app's files.
+
+Secrets injected at startup — by Bank-Vaults' `vault-env`, a wrapper such as `op run`, or the Vault Agent — need
+nothing special: docuconf validates the environment and files as they are when the process starts, after
+injection. On the platform side they are declared as `injected` values (SPEC §4.5.1).
+
 ## Develop
 
 ```sh

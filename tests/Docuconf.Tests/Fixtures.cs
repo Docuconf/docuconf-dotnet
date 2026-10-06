@@ -174,3 +174,44 @@ public sealed class CertificateAuthority
         return (request.Create(Certificate, notBefore, notAfter, serial), key);
     }
 }
+
+[ConfigContract("catalog", Section = "Catalog")]
+[ConfigOverlay("platform", "/app/config/appsettings.Production.json", ReloadOnChange = true, Description = "Platform overrides, layered over the appsettings files")]
+public sealed class CatalogOptions
+{
+    [Range(1, 500)]
+    [Description("Items per page")]
+    public int PageSize { get; set; } = 20;
+
+    [Range(typeof(TimeSpan), "00:00:01", "01:00:00")]
+    [Description("How long catalog pages are cached")]
+    public TimeSpan CacheTtl { get; set; } = TimeSpan.FromMinutes(5);
+
+    [Description("Categories shown on the home page")]
+    public List<string> FeaturedCategories { get; set; } = [];
+
+    [Required, UrlSchemes("https")]
+    [Description("Search service endpoint")]
+    public string SearchUrl { get; set; } = "";
+}
+
+[ConfigContract("broken-overlays", Section = "Broken")]
+[ConfigOverlay("Platform", "app/config/settings.json")]
+[ConfigOverlay("yaml", "/app/yaml/settings.yaml")]
+[ConfigOverlay("one", "/app/shared/a.json")]
+[ConfigOverlay("two", "/app/shared/b.json")]
+public sealed class BrokenOverlayOptions
+{
+    [Description("Any value at all")]
+    public string Value { get; set; } = "";
+}
+
+// An overlay at the filesystem root: with DOCUCONF_FILE_ROOT set to the app's own directory it lands among the
+// app's files, which the runtime must refuse.
+[ConfigContract("rooted", Section = "Rooted")]
+[ConfigOverlay("platform", "/overlay.json")]
+public sealed class RootedOverlayOptions
+{
+    [Description("Any value at all")]
+    public string Value { get; set; } = "";
+}
