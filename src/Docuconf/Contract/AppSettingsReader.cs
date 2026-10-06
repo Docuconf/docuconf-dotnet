@@ -108,7 +108,7 @@ internal static class AppSettingsReader
 
         if (value is not null && Constraints.Check(spec, value) is { } problem)
         {
-            errors.Add($"{fileName}: {spec.ConfigKey} = {Constraints.Show(value)} {problem}.");
+            errors.Add($"{fileName}: {spec.ConfigKey} = {Constraints.Show(value)} {problem.Message}.");
             return null;
         }
 
@@ -131,7 +131,7 @@ internal static class AppSettingsReader
             return items.Count == 0
                 ? null
                 : spec.Items == "int"
-                    ? items.Select(i => (object)long.Parse(i, NumberStyles.Integer, CultureInfo.InvariantCulture)).ToList()
+                    ? items.Select(i => Parsed(WireFormat.ParseInt(i, out var l), i, l)).ToList()
                     : items.Select(i => (object)i).ToList();
         }
 
@@ -143,7 +143,7 @@ internal static class AppSettingsReader
 
         return spec.Type switch
         {
-            VarType.Int => long.Parse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture),
+            VarType.Int => Parsed(WireFormat.ParseInt(raw, out var l), raw, l),
             VarType.Float => double.Parse(raw, NumberStyles.Float, CultureInfo.InvariantCulture),
             VarType.Bool => bool.Parse(raw),
             VarType.Duration => GoDuration.Format(TimeSpanParser.Parse(raw)),
@@ -152,6 +152,9 @@ internal static class AppSettingsReader
             _ => raw,
         };
     }
+
+    private static object Parsed(Problem? problem, string raw, object value) =>
+        problem is null ? value : throw new FormatException($"'{raw}' {problem.Message}");
 }
 
 /// <summary>
@@ -160,13 +163,22 @@ internal static class AppSettingsReader
 /// </summary>
 internal static class TimeSpanParser
 {
-    public static TimeSpan Parse(string raw)
-    {
-        if (!raw.Contains(':', StringComparison.Ordinal))
-        {
-            throw new FormatException($"'{raw}' is ambiguous as a TimeSpan; write it as hh:mm:ss, for example 00:00:30.");
-        }
+    public static TimeSpan Parse(string raw) =>
+        TryParse(raw, out var value)
+            ? value
+            : throw new FormatException(raw.Contains(':', StringComparison.Ordinal)
+                ? $"'{raw}' is not a TimeSpan such as 00:01:30 or 1.02:03:04.5."
+                : $"'{raw}' is ambiguous as a TimeSpan; write it as hh:mm:ss, for example 00:00:30.");
 
-        return TimeSpan.Parse(raw, CultureInfo.InvariantCulture);
+    /// <summary>
+    /// <c>[-][d.]hh:mm[:ss[.fffffff]]</c>, as <see cref="TimeSpan.Parse(string, IFormatProvider)"/> reads it with the
+    /// invariant culture, but without surrounding whitespace (values are never trimmed) and never a bare number.
+    /// </summary>
+    public static bool TryParse(string raw, out TimeSpan value)
+    {
+        value = default;
+        return raw.Contains(':', StringComparison.Ordinal)
+            && raw.Length > 0 && !char.IsWhiteSpace(raw[0]) && !char.IsWhiteSpace(raw[^1])
+            && TimeSpan.TryParse(raw, CultureInfo.InvariantCulture, out value);
     }
 }

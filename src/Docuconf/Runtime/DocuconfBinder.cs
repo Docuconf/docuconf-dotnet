@@ -70,7 +70,14 @@ internal static class DocuconfBinder
 
             try
             {
-                SetPath(target, spec.PropertyPath, Convert(section, spec));
+                if (Convert(section, spec, out var value) is { } problem)
+                {
+                    var shown = spec.Secret || spec.Type == VarType.List ? "" : $"'{section.Value}' ";
+                    violations.Add(new Violation(problem.Code, spec.Name, shown + problem.Message + (spec.Secret ? " (value redacted)" : "")));
+                    continue;
+                }
+
+                SetPath(target, spec.PropertyPath, value);
             }
             catch (Exception ex) when (ex is FormatException or OverflowException or InvalidOperationException or ArgumentException or NotSupportedException)
             {
@@ -120,31 +127,52 @@ internal static class DocuconfBinder
         }
     }
 
-    private static object? Convert(IConfigurationSection section, VarSpec spec)
+    /// <summary>
+    /// Converts a configuration value with the same wire rules as the contract-first mode (SPEC §5), so the declared
+    /// options and a contract accept the same strings. Returns the problem, or null with the value set.
+    /// </summary>
+    private static Problem? Convert(IConfigurationSection section, VarSpec spec, out object? value)
     {
+        value = null;
         var clr = Nullable.GetUnderlyingType(spec.ClrType!) ?? spec.ClrType!;
         if (spec.Type == VarType.List)
         {
-            return section.Get(spec.ClrType!);
+            if (spec.Items == "int" && CheckIntItems(section, ContractReader.ElementType(clr)!) is { } itemProblem)
+            {
+                return itemProblem;
+            }
+
+            value = section.Get(spec.ClrType!);
+            return null;
         }
 
         var raw = section.Value!;
+        if (spec.Type == VarType.Int)
+        {
+            var problem = WireFormat.ParseInt(raw, out var l) ?? WireFormat.FitsIn(l, clr);
+            value = problem is null ? System.Convert.ChangeType(clr == typeof(ulong) ? (ulong)l : l, clr, CultureInfo.InvariantCulture) : null;
+            return problem;
+        }
+
         if (clr.IsEnum)
         {
             // Names only: Enum.Parse would also accept "3".
             var name = Enum.GetNames(clr).FirstOrDefault(n => string.Equals(n, raw, StringComparison.OrdinalIgnoreCase))
                 ?? throw new FormatException();
-            return Enum.Parse(clr, name);
+            value = Enum.Parse(clr, name);
+            return null;
         }
 
         if (clr == typeof(TimeSpan))
         {
-            return TimeSpanParser.Parse(raw);
+            value = TimeSpanParser.Parse(raw);
+            return null;
         }
 
         if (clr == typeof(Uri))
         {
-            return new Uri(raw, UriKind.Absolute);
+            value = new Uri(raw, UriKind.Absolute);
+            return null;
         }
 
         if (clr == typeof(double) || clr == typeof(float))
@@ -155,10 +183,27 @@ internal static class DocuconfBinder
                 throw new FormatException();
             }
 
-            return System.Convert.ChangeType(d, clr, CultureInfo.InvariantCulture);
+            value = System.Convert.ChangeType(d, clr, CultureInfo.InvariantCulture);
+            return null;
         }
 
-        return TypeDescriptor.GetConverter(clr).ConvertFromInvariantString(raw);
+        value = TypeDescriptor.GetConverter(clr).ConvertFromInvariantString(raw);
+        return null;
+    }
+
+    /// <summary>Each item of an int list must be an integer the element type holds.</summary>
+    private static Problem? CheckIntItems(IConfigurationSection section, Type element)
+    {
+        foreach (var child in section.GetChildren())
+        {
+            var raw = child.Value ?? "";
+            if ((WireFormat.ParseInt(raw, out var item) ?? WireFormat.FitsIn(item, element)) is { } problem)
+            {
+                return problem with { Message = $"item {child.Key} {problem.Message}" };
+            }
+        }
+
+        return null;
     }
 
     private static string Describe(VarSpec spec) => spec.Type switch

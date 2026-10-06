@@ -36,11 +36,16 @@ public sealed class BillingOptions
 
 Everything else is ordinary .NET: `[Required]`, `[Range]`, `[MinLength]`, `[RegularExpression]`, `[AllowedValues]`
 and `[Url]` become contract constraints. `Description` is required, because every input in a contract is documented.
+Integer types narrower than 64 bits export their own range, so the platform never sends a value the property cannot
+hold: an `int` gets `min`/`max` of ±2³¹ (clamped further by `[Range]`), a `uint` gets `min: 0`, and the items of an
+`int[]` get `itemMin`/`itemMax` the same way. DataAnnotations has nothing for the items of a collection, so
+`[ItemRange]` adds it; an item outside its bounds, or one its type cannot hold, fails startup with `out_of_range`.
 
 | Attribute | Input |
 |---|---|
 | `[Secret]` | Must come from a Kubernetes Secret; never printed. |
 | `[UrlSchemes("https")]` | A URL with an allowed scheme. |
+| `[ItemRange(0, 1023)]` on an `int[]`, `List<long>`, ... | Bounds every item of an integer list (`itemMin`/`itemMax`). |
 | `[TlsFile(dir)]` on a `TlsKeyPair` | `tls.crt`, `tls.key`, optional `ca.crt`. Checked for key match, expiry (`MinRemaining`), `DnsNames`, `KeyAlgorithms`, and the chain to `ca.crt` (`RequireCA`). `.Current` reloads rotated certificates. |
 | `[ConfigFile(path)]` on any class | A JSON file deserialized into that class. The contract carries a JSON Schema generated from it, so the platform checks the file against the same type. |
 | `[CaBundleFile(path)]` on a `CaBundle` | PEM CA certificates. |

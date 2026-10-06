@@ -125,11 +125,12 @@ public static partial class CueWriter
         if (v.Secret) w.Field("secret", "true");
         if (v.ConfigKey.Length > 0) w.Field("configKey", Str(v.ConfigKey));
         // The .NET configuration binder reads TimeSpan as hh:mm:ss and lists from indexed keys (NAME__0, NAME__1).
-        if (v.Type == VarType.Duration) w.Field("encoding", Str("timespan"));
+        if (v.Type == VarType.Duration) w.Field("encoding", Str(v.Encoding ?? "timespan"));
         if (v.Type == VarType.List)
         {
             w.Field("items", Str(v.Items!));
-            w.Field("encoding", Str("indexed"));
+            w.Field("encoding", Str(v.Encoding ?? "indexed"));
+            if (v.Separator is { } separator) w.Field("separator", Str(separator));
         }
 
         if (v.Values is { } values) w.Field("values", List(values.Select(Str)));
@@ -141,6 +142,8 @@ public static partial class CueWriter
         if (v.Pattern is { } pattern) w.Field("pattern", Str(pattern));
         if (v.MinItems is { } minItems) w.Field("minItems", Num(minItems));
         if (v.MaxItems is { } maxItems) w.Field("maxItems", Num(maxItems));
+        if (v.ItemMin is { } itemMin) w.Field("itemMin", Num(itemMin));
+        if (v.ItemMax is { } itemMax) w.Field("itemMax", Num(itemMax));
         if (v.Schema is { } schema) w.Field("schema", Schema(schema, w.Depth));
         if (v.Default is { } value) w.Field("default", Value(value, v.Type == VarType.Float));
         w.Close();

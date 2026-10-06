@@ -316,6 +316,28 @@ public static partial class ContractReader
             };
         }
 
+        if (type == VarType.Int)
+        {
+            // A field narrower than 64 bits exports its own range, so the platform never sends a value it cannot hold.
+            (min, max) = Narrow((long?)min, (long?)max, WireFormat.RangeOf(clr));
+        }
+
+        long? itemMin = null, itemMax = null;
+        var itemRange = prop.GetCustomAttribute<ItemRangeAttribute>();
+        if (itemRange is not null && listKind != "int")
+        {
+            errors.Add($"{key}: [ItemRange] applies to lists of integers, such as int[] or List<long>.");
+        }
+        else if (itemRange is not null && itemRange.Minimum > itemRange.Maximum)
+        {
+            errors.Add($"{key}: [ItemRange({itemRange.Minimum}, {itemRange.Maximum})] has its minimum above its maximum.");
+        }
+
+        if (listKind == "int")
+        {
+            (itemMin, itemMax) = Narrow(itemRange?.Minimum, itemRange?.Maximum, WireFormat.RangeOf(ElementType(clr)!));
+        }
+
         var (minLength, maxLength) = type == VarType.Json ? (null, null) : LengthBounds(prop);
         string? pattern = FullMatch(prop.GetCustomAttribute<RegularExpressionAttribute>()?.Pattern);
         if (pattern is not null && NonRe2().IsMatch(pattern))
@@ -337,6 +359,8 @@ public static partial class ContractReader
             MaxLength = type == VarType.List ? null : maxLength,
             MinItems = type == VarType.List ? minLength : null,
             MaxItems = type == VarType.List ? maxLength : null,
+            ItemMin = itemMin,
+            ItemMax = itemMax,
             Pattern = pattern,
             Schemes = schemes,
             Values = values,
@@ -370,7 +394,7 @@ public static partial class ContractReader
 
         if (spec.Default is not null && Constraints.Check(spec, spec.Default) is { } problem)
         {
-            errors.Add($"{key}: the default {Constraints.Show(spec.Default)} {problem}. Add a valid initializer or mark it [Required].");
+            errors.Add($"{key}: the default {Constraints.Show(spec.Default)} {problem.Message}. Add a valid initializer or mark it [Required].");
         }
 
         model.Vars[name] = spec;
@@ -637,19 +661,21 @@ public static partial class ContractReader
         t == typeof(string) || t == typeof(bool) || t == typeof(TimeSpan) || t == typeof(Uri) || t.IsEnum
         || IsInteger(t) || t == typeof(double) || t == typeof(float) || t == typeof(decimal);
 
+    private static (long? Min, long? Max) Narrow(long? min, long? max, (long? Min, long? Max) range) =>
+        (range.Min is { } lo && (min is null || min < lo) ? lo : min,
+         range.Max is { } hi && (max is null || max > hi) ? hi : max);
+
+    /// <summary>The element type of an array or a generic collection, or null.</summary>
+    internal static Type? ElementType(Type t) =>
+        t == typeof(string) ? null
+        : t.IsArray ? t.GetElementType()
+        : t.IsGenericType && t.GetGenericArguments().Length == 1 && typeof(IEnumerable).IsAssignableFrom(t) ? t.GetGenericArguments()[0]
+        : null;
+
     /// <summary>"string" or "int" for a list of scalars the binder fills from indexed keys; null otherwise.</summary>
     internal static string? ListItemKind(Type t)
     {
-        if (t == typeof(string))
-        {
-            return null;
-        }
-
-        Type? element = t.IsArray
-            ? t.GetElementType()
-            : t.IsGenericType && t.GetGenericArguments().Length == 1 && typeof(IEnumerable).IsAssignableFrom(t)
-                ? t.GetGenericArguments()[0]
-                : null;
+        var element = ElementType(t);
         if (element is null)
         {
             return null;

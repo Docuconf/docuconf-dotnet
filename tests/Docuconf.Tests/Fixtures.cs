@@ -30,6 +30,10 @@ public sealed class GatewayOptions
     [Description("Kafka brokers to connect to")]
     public List<string> Brokers { get; set; } = [];
 
+    [ItemRange(0, 1023)]
+    [Description("Shard ids this instance owns")]
+    public int[] Shards { get; set; } = [];
+
     [Required, Secret]
     [Description("Password for the partner keystore")]
     public string KeystorePassword { get; set; } = "";
