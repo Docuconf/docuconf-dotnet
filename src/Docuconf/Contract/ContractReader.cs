@@ -202,7 +202,17 @@ public static partial class ContractReader
             }
 
             var clr = Nullable.GetUnderlyingType(prop.PropertyType) ?? prop.PropertyType;
-            if (IsScalar(clr) || ListItemKind(clr) is not null)
+            if (prop.GetCustomAttribute<JsonVarAttribute>() is not null)
+            {
+                if (IsScalar(clr) || clr.IsValueType)
+                {
+                    errors.Add($"{key}: a [JsonVar] property must be a class, list or dictionary the JSON value deserializes into; {clr.Name} is a plain variable already.");
+                    continue;
+                }
+
+                ReadVar(prop, clr, instance, key, propPath, model, errors, json: true);
+            }
+            else if (IsScalar(clr) || ListItemKind(clr) is not null)
             {
                 ReadVar(prop, clr, instance, key, propPath, model, errors);
             }
@@ -220,7 +230,7 @@ public static partial class ContractReader
     }
 
     private static void ReadVar(
-        PropertyInfo prop, Type clr, object? instance, string key, List<PropertyInfo> path, ContractModel model, List<string> errors)
+        PropertyInfo prop, Type clr, object? instance, string key, List<PropertyInfo> path, ContractModel model, List<string> errors, bool json = false)
     {
         var name = prop.GetCustomAttribute<EnvNameAttribute>()?.Name ?? key.Replace(":", "__", StringComparison.Ordinal).ToUpperInvariant();
         if (!EnvNameSyntax().IsMatch(name))
@@ -243,7 +253,12 @@ public static partial class ContractReader
         VarType type;
         IReadOnlyList<string>? values = null;
         IReadOnlyList<string>? schemes = prop.GetCustomAttribute<UrlSchemesAttribute>()?.Schemes;
-        if (listKind is not null)
+        if (json)
+        {
+            type = VarType.Json;
+            listKind = null;
+        }
+        else if (listKind is not null)
         {
             type = VarType.List;
         }
@@ -301,7 +316,7 @@ public static partial class ContractReader
             };
         }
 
-        var (minLength, maxLength) = LengthBounds(prop);
+        var (minLength, maxLength) = type == VarType.Json ? (null, null) : LengthBounds(prop);
         string? pattern = FullMatch(prop.GetCustomAttribute<RegularExpressionAttribute>()?.Pattern);
         if (pattern is not null && NonRe2().IsMatch(pattern))
         {
@@ -326,11 +341,14 @@ public static partial class ContractReader
             Schemes = schemes,
             Values = values,
             Items = listKind,
+            Schema = json ? SchemaGenerator.For(clr) : null,
             PropertyPath = path,
             ClrType = prop.PropertyType,
         };
 
-        var initial = instance is null ? null : Normalize(prop.GetValue(instance), clr);
+        var initial = instance is null ? null
+            : json ? (prop.GetValue(instance) is { } structured ? JsonVar.ToNode(structured, clr) : null)
+            : Normalize(prop.GetValue(instance), clr);
         bool isUnsetValueType = clr.IsValueType && Nullable.GetUnderlyingType(prop.PropertyType) is null
             && Equals(prop.GetValue(instance ?? Activator.CreateInstance(prop.DeclaringType!)), Activator.CreateInstance(clr));
         if (required && (initial is null || isUnsetValueType))

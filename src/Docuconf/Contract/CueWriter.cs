@@ -117,6 +117,7 @@ public static partial class CueWriter
             VarType.Duration => "duration",
             VarType.Url => "url",
             VarType.Enum => "enum",
+            VarType.Json => "json",
             _ => "list",
         }));
         w.Field("description", Str(v.Description));
@@ -140,6 +141,7 @@ public static partial class CueWriter
         if (v.Pattern is { } pattern) w.Field("pattern", Str(pattern));
         if (v.MinItems is { } minItems) w.Field("minItems", Num(minItems));
         if (v.MaxItems is { } maxItems) w.Field("maxItems", Num(maxItems));
+        if (v.Schema is { } schema) w.Field("schema", Schema(schema, w.Depth));
         if (v.Default is { } value) w.Field("default", Value(value, v.Type == VarType.Float));
         w.Close();
     }
@@ -186,6 +188,7 @@ public static partial class CueWriter
         int i => i.ToString(CultureInfo.InvariantCulture),
         double d => FloatLiteral(d),
         List<object> items => List(items.Select(i => Value(i))),
+        JsonNode node => node.ToJsonString(Json), // JSON is valid CUE.
         _ => throw new ArgumentException($"Cannot write {value.GetType().Name} into a contract."),
     };
 

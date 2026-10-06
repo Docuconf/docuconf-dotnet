@@ -62,6 +62,12 @@ internal static class DocuconfBinder
                 continue;
             }
 
+            if (spec.Type == VarType.Json)
+            {
+                BindJson(target, section, spec, violations);
+                continue;
+            }
+
             try
             {
                 SetPath(target, spec.PropertyPath, Convert(section, spec));
@@ -75,6 +81,43 @@ internal static class DocuconfBinder
 
         FileChecks.LoadAll(target, model, settings, violations);
         return violations;
+    }
+
+    private static void BindJson(object target, IConfigurationSection section, VarSpec spec, List<Violation> violations)
+    {
+        var type = spec.ClrType!;
+        object? value;
+        try
+        {
+            value = JsonVar.Bind(section, type);
+        }
+        catch (Exception ex) when (ex is JsonException or InvalidOperationException or NotSupportedException)
+        {
+            // System.Text.Json and binder messages give the path and the type, not the value; secrets get neither.
+            var detail = spec.Secret ? " (value redacted)" : $": {ex.Message}";
+            violations.Add(new Violation(Codes.InvalidType, spec.Name, $"is not valid JSON for {type.Name}{detail}"));
+            return;
+        }
+
+        if (value is null)
+        {
+            violations.Add(new Violation(Codes.InvalidType, spec.Name, $"is null; expected JSON for {type.Name}"));
+            return;
+        }
+
+        var problems = JsonVar.Validate(value);
+        foreach (var problem in problems)
+        {
+            var message = spec.Secret && problem.Attribute is { } attr
+                ? $"fails {attr.GetType().Name.Replace("Attribute", "", StringComparison.Ordinal)} (value redacted)"
+                : problem.Message;
+            violations.Add(new Violation(Codes.SchemaMismatch, spec.Name, $"{problem.Path}: {message}"));
+        }
+
+        if (problems.Count == 0)
+        {
+            SetPath(target, spec.PropertyPath!, value);
+        }
     }
 
     private static object? Convert(IConfigurationSection section, VarSpec spec)
@@ -127,6 +170,7 @@ internal static class DocuconfBinder
         VarType.Url => "absolute URL",
         VarType.Enum => "value; expected one of " + string.Join(", ", spec.Values!),
         VarType.List => "list",
+        VarType.Json => "JSON value",
         _ => "string",
     };
 

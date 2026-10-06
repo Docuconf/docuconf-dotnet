@@ -56,6 +56,60 @@ public sealed class GatewayOptions
     [TextFile("/etc/gw/license/license.key", Pattern = "^[A-Z]{4}\\n?$")]
     [Description("Licence key")]
     public string License { get; set; } = "";
+
+    [JsonVar]
+    [Description("Per-client rate limit")]
+    public RateLimit? RateLimit { get; set; }
+}
+
+public sealed class RateLimit
+{
+    [Required, Range(1, 10000)]
+    [Description("Requests per second")]
+    public int Rps { get; set; }
+
+    [Range(0, 10000)]
+    [Description("Extra requests allowed in a burst")]
+    public int Burst { get; set; }
+
+    [AllowedValues("ip", "token")]
+    [Description("What identifies a client")]
+    public string Key { get; set; } = "ip";
+}
+
+public sealed class Upstream
+{
+    [Required, RegularExpression("[a-z0-9.-]+")]
+    [Description("Upstream host name")]
+    public string Host { get; set; } = "";
+
+    [Range(1, 100)]
+    [Description("Share of traffic")]
+    public int Weight { get; set; } = 1;
+}
+
+[ConfigContract("throttle", Section = "Throttle")]
+[ConfigOverlay("platform", "/app/overlay/overrides.json")]
+public sealed class ThrottleOptions
+{
+    [Required, JsonVar]
+    [Description("Rate limit for the public API")]
+    public RateLimit Limits { get; set; } = null!;
+
+    [JsonVar]
+    [Description("Upstream hosts and their weights")]
+    public List<Upstream> Upstreams { get; set; } = [new() { Host = "a.svc", Weight = 1 }];
+
+    [Secret, JsonVar]
+    [Description("Partner API credentials")]
+    public Credentials? Partner { get; set; }
+}
+
+public sealed class Credentials
+{
+    [Required, MinLength(8)]
+    [Description("Client secret")]
+    public string Secret { get; set; } = "";
 }
 
 public sealed class Routes

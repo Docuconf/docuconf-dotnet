@@ -194,6 +194,8 @@ public sealed class ExportTests : IDisposable
         Assert.Contains(ex.Errors, e => e.Contains("Broken:Code: pattern", StringComparison.Ordinal) && e.Contains("RE2", StringComparison.Ordinal));
         Assert.Contains(ex.Errors, e => e.Contains("Broken:Settings: Reload.Watch is not supported", StringComparison.Ordinal));
         Assert.Contains(ex.Errors, e => e.Contains("Broken:Pair: a [TlsFile] property must be of type TlsKeyPair", StringComparison.Ordinal));
+        Assert.Contains(ex.Errors, e => e.Contains("Broken:Scalar: a [JsonVar] property must be a class", StringComparison.Ordinal));
+        Assert.Contains(ex.Errors, e => e.Contains("Broken:Limit: the default {\"rps\":0,\"burst\":0,\"key\":\"ip\"} fails its schema at $.rps", StringComparison.Ordinal));
     }
 
     [Theory]
@@ -208,7 +210,7 @@ public sealed class ExportTests : IDisposable
         Assert.Equal(ts, GoDuration.Parse(go));
     }
 
-    private static string CueModule(string contract)
+    internal static string CueModule(string contract)
     {
         var module = Directory.CreateTempSubdirectory("docuconf-cue-").FullName;
         CopyDirectory(Path.Join(AppContext.BaseDirectory, "spec", "cue.mod"), Path.Join(module, "cue.mod"));
@@ -232,7 +234,7 @@ public sealed class ExportTests : IDisposable
         }
     }
 
-    private static (int Exit, string Output) Cue(string workingDirectory, params string[] args)
+    internal static (int Exit, string Output) Cue(string workingDirectory, params string[] args)
     {
         var cue = FindCue();
         if (cue is null)
@@ -287,4 +289,12 @@ public sealed class BrokenOptions
     [TlsFile("/etc/broken/tls")]
     [Description("A key pair of the wrong type")]
     public string Pair { get; set; } = "";
+
+    [JsonVar]
+    [Description("A scalar marked as JSON")]
+    public int Scalar { get; set; }
+
+    [JsonVar]
+    [Description("A rate limit whose default is invalid")]
+    public RateLimit Limit { get; set; } = new() { Rps = 0 };
 }
