@@ -147,43 +147,41 @@ internal static class DocuconfBinder
         }
 
         var raw = section.Value!;
-        if (spec.Type == VarType.Int)
+        Problem? problem;
+        switch (spec.Type)
         {
-            var problem = WireFormat.ParseInt(raw, out var l) ?? WireFormat.FitsIn(l, clr);
-            value = problem is null ? System.Convert.ChangeType(clr == typeof(ulong) ? (ulong)l : l, clr, CultureInfo.InvariantCulture) : null;
-            return problem;
+            case VarType.Int:
+                problem = WireFormat.ParseInt(raw, out var l) ?? WireFormat.FitsIn(l, clr);
+                value = problem is null ? System.Convert.ChangeType(clr == typeof(ulong) ? (ulong)l : l, clr, CultureInfo.InvariantCulture) : null;
+                return problem;
+            case VarType.Float:
+                problem = WireFormat.ParseFloat(raw, out var d);
+                value = problem is null ? System.Convert.ChangeType(d, clr, CultureInfo.InvariantCulture) : null;
+                return problem;
+            case VarType.Bool:
+                problem = WireFormat.ParseBool(raw, out var b);
+                value = b;
+                return problem;
+            case VarType.Duration:
+                problem = WireFormat.ParseDuration(raw, "timespan", out var ts);
+                value = ts;
+                return problem;
+            case VarType.Url:
+                problem = WireFormat.ParseUrl(raw, out var uri);
+                value = clr == typeof(Uri) ? uri : raw;
+                return problem;
         }
 
         if (clr.IsEnum)
         {
-            // Names only: Enum.Parse would also accept "3".
-            var name = Enum.GetNames(clr).FirstOrDefault(n => string.Equals(n, raw, StringComparison.OrdinalIgnoreCase))
-                ?? throw new FormatException();
-            value = Enum.Parse(clr, name);
-            return null;
-        }
-
-        if (clr == typeof(TimeSpan))
-        {
-            value = TimeSpanParser.Parse(raw);
-            return null;
-        }
-
-        if (clr == typeof(Uri))
-        {
-            value = new Uri(raw, UriKind.Absolute);
-            return null;
-        }
-
-        if (clr == typeof(double) || clr == typeof(float))
-        {
-            var d = double.Parse(raw, NumberStyles.Float, CultureInfo.InvariantCulture);
-            if (double.IsNaN(d) || double.IsInfinity(d))
+            // Names only, matched exactly as the platform matches enum values: Enum.Parse would also accept "3" or "WARN".
+            var name = Enum.GetNames(clr).FirstOrDefault(n => string.Equals(n, raw, StringComparison.Ordinal));
+            if (name is null)
             {
-                throw new FormatException();
+                return new Problem(Codes.NotInEnum, $"is not one of {string.Join(", ", spec.Values!)}");
             }
 
-            value = System.Convert.ChangeType(d, clr, CultureInfo.InvariantCulture);
+            value = Enum.Parse(clr, name);
             return null;
         }
 

@@ -144,11 +144,9 @@ internal static class AppSettingsReader
         return spec.Type switch
         {
             VarType.Int => Parsed(WireFormat.ParseInt(raw, out var l), raw, l),
-            VarType.Float => double.Parse(raw, NumberStyles.Float, CultureInfo.InvariantCulture),
-            VarType.Bool => bool.Parse(raw),
+            VarType.Float => Parsed(WireFormat.ParseFloat(raw, out var d), raw, d),
+            VarType.Bool => Parsed(WireFormat.ParseBool(raw, out var b), raw, b),
             VarType.Duration => GoDuration.Format(TimeSpanParser.Parse(raw)),
-            VarType.Enum => spec.Values!.FirstOrDefault(v => string.Equals(v, raw, StringComparison.OrdinalIgnoreCase))
-                ?? throw new FormatException($"'{raw}' is not one of {string.Join(", ", spec.Values!)}"),
             _ => raw,
         };
     }

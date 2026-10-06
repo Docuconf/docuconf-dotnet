@@ -39,10 +39,10 @@ internal static class Constraints
             case VarType.Enum when value is string e:
                 return spec.Values!.Contains(e, StringComparer.Ordinal) ? null : new Problem(Codes.NotInEnum, $"is not one of {string.Join(", ", spec.Values!)}");
             case VarType.Url when value is string u:
-                if (!Uri.TryCreate(u, UriKind.Absolute, out var uri)) return new Problem(Codes.InvalidType, "is not an absolute URL");
-                return WireFormat.CheckScheme(uri, spec.Schemes);
+                return WireFormat.ParseUrl(u, out var uri) ?? WireFormat.CheckScheme(uri!, spec.Schemes);
             case VarType.String when value is string str:
-                int length = str.Length;
+                // Lengths count characters (Unicode scalar values), as CUE's strings.MinRunes does, not UTF-16 units.
+                int length = str.EnumerateRunes().Count();
                 if (spec.MinLength is int minLen && length < minLen) return OutOfRange($"is shorter than {minLen} characters");
                 if (spec.MaxLength is int maxLen && length > maxLen) return OutOfRange($"is longer than {maxLen} characters");
                 if (spec.Pattern is { } pattern && !Regex.IsMatch(str, pattern)) return new Problem(Codes.PatternMismatch, $"does not match {pattern}");

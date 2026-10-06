@@ -40,6 +40,9 @@ Integer types narrower than 64 bits export their own range, so the platform neve
 hold: an `int` gets `min`/`max` of ±2³¹ (clamped further by `[Range]`), a `uint` gets `min: 0`, and the items of an
 `int[]` get `itemMin`/`itemMax` the same way. DataAnnotations has nothing for the items of a collection, so
 `[ItemRange]` adds it; an item outside its bounds, or one its type cannot hold, fails startup with `out_of_range`.
+Values are read as the platform writes them (SPEC §5), whichever configuration source they come from: integers in
+base 10, numbers with a `.` whatever the culture, `true`/`false`, URLs with a `scheme://`, and enum names exactly as
+declared (`Warn`, not `WARN`). Nothing is trimmed.
 
 | Attribute | Input |
 |---|---|
