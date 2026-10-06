@@ -186,4 +186,4 @@ startup validation. Releases are published from CI with NuGet trusted publishing
 `samples/Billing.Api` uses every input kind. The tests check exported contracts against a copy of the CUE
 meta-schema in `tests/Docuconf.Tests/spec`; refresh it with `scripts/sync-spec.sh`.
 
-Licence: [MIT](LICENSE).
+Licence: [MIT](https://github.com/docuconf/docuconf-dotnet/blob/main/LICENSE).
