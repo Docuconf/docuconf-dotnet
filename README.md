@@ -138,6 +138,39 @@ injection. On the platform side they are declared as `injected` values (SPEC §4
 holds a reference when the app starts (it begins with `vault:`, `op://` or `ref+`), the injector did not run, and
 startup fails with `invalid_type` naming the variable and the reference scheme, never the value.
 
+## Contract-first
+
+When the contract comes first (written by hand in CUE, or another app's), validate an environment against it
+directly, with no options class. Export it as JSON with `cue export contract.cue --out json > contract.json`, then:
+
+```csharp
+var config = DocuconfContract.FromFile("contract.json").Load();   // the process environment
+long port = config.Get<long>("PORT");                              // throws ContractValidationException otherwise
+```
+
+`Load(env)` takes an environment map instead, and `Validate(env)` returns the violations instead of throwing. Values
+are typed: `long` for `int`, `double`, `bool`, `TimeSpan` for `duration`, `Uri` for `url`, `IReadOnlyList<string>` or
+`IReadOnlyList<long>` for lists, a `JsonNode` for `json`, `string` otherwise; an absent optional value is null. Every
+wire encoding is read, as the contract's `encoding` says: lists as `csv` (with its `separator`), `json` or `indexed`
+(`NAME__0`, `NAME__1`), durations as `go`, `iso8601`, `seconds` or `timespan`. Values go through the same parsers and
+constraint checks as options classes. The mode covers variables only: file inputs are not read, and `json` values are
+parsed but not checked against their JSON Schema.
+
+## Conformance
+
+The tests run docuconf's shared conformance suite (SPEC §12) through the contract-first mode. They read
+`conformance/cases.json` from a docuconf-go checkout next to this repository, or from `DOCUCONF_CONFORMANCE`:
+
+```sh
+DOCUCONF_CONFORMANCE=../docuconf-go/conformance/cases.json DOCUCONF_REQUIRE_CONFORMANCE=1 \
+  dotnet test -- --filter-class Docuconf.Tests.ConformanceTests --output detailed
+```
+
+Without the file the test is skipped, unless `DOCUCONF_REQUIRE_CONFORMANCE=1` (as in CI), which fails it. Failures are
+reported by case id. Cases tagged `json-schema` are skipped: .NET has no JSON Schema validator, so the contract-first
+mode does not check `json` values against their schema (options classes check them with their type's DataAnnotations
+instead). Every other tag, including `int64`, is supported.
+
 ## Develop
 
 ```sh

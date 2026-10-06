@@ -11,8 +11,17 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
+    env:
+      # The shared conformance suite (SPEC §12), run by tests/Docuconf.Tests/ConformanceTests.cs.
+      DOCUCONF_CONFORMANCE: ${{ github.workspace }}/docuconf-go/conformance/cases.json
+      DOCUCONF_REQUIRE_CONFORMANCE: "1"
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: docuconf/docuconf-go
+          ref: main
+          path: docuconf-go
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: |
