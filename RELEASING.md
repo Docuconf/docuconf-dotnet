@@ -43,3 +43,54 @@ While the package is in alpha, `release-please-config.json` sets `"prerelease": 
 and `"prerelease-type": "alpha"`, so each release PR proposes the next alpha (`0.1.0-alpha.2`, ...) and the GitHub
 release is marked as a pre-release. To leave the alpha, remove those three settings and land a commit whose message
 has a `Release-As: 0.1.0` footer; the next release PR then proposes `0.1.0`, and later ones follow the commit types.
+
+## GitHub Packages and Releases
+
+The `github` job in `.github/workflows/release.yml` runs on the same `v*` tags. It repeats the checks, then:
+
+- pushes `Docuconf.Options` to GitHub Packages (`https://nuget.pkg.github.com/Docuconf/index.json`), the `.nupkg`
+  first and then the `.snupkg` symbol package (a rejected `.snupkg` does not fail the job);
+- creates the GitHub Release for the tag if it does not exist, and attaches the `.nupkg` and `.snupkg`.
+
+It does not depend on the nuget.org `publish` job, so it works before the nuget.org account, trusted publishing policy
+and `nuget` environment exist. It authenticates with the workflow's own `GITHUB_TOKEN` (`packages: write`,
+`contents: write`); there are no secrets or accounts to set up. The only requirement is that the `Docuconf`
+organization lets `GITHUB_TOKEN` write packages, which it does unless package creation has been restricted under
+Organization settings > Packages. The package is linked to this repository through the repository URL that SourceLink
+writes into the `.nuspec`.
+
+### Installing from GitHub Packages
+
+GitHub's NuGet registry requires a token even for public packages. Create a personal access token (classic) with the
+`read:packages` scope and add the source in a `nuget.config` next to your solution:
+
+```xml
+<?xml version="1.0" encoding="utf-8"?>
+<configuration>
+  <packageSources>
+    <add key="nuget.org" value="https://api.nuget.org/v3/index.json" />
+    <add key="docuconf" value="https://nuget.pkg.github.com/Docuconf/index.json" />
+  </packageSources>
+  <packageSourceMapping>
+    <packageSource key="nuget.org">
+      <package pattern="*" />
+    </packageSource>
+    <packageSource key="docuconf">
+      <package pattern="Docuconf.*" />
+    </packageSource>
+  </packageSourceMapping>
+  <packageSourceCredentials>
+    <docuconf>
+      <add key="Username" value="YOUR_GITHUB_USERNAME" />
+      <add key="ClearTextPassword" value="%GITHUB_TOKEN%" />
+    </docuconf>
+  </packageSourceCredentials>
+</configuration>
+```
+
+then `dotnet add package Docuconf.Options` with `GITHUB_TOKEN` set in the environment. Or add the source from the
+command line: `dotnet nuget add source https://nuget.pkg.github.com/Docuconf/index.json --name docuconf --username
+YOUR_GITHUB_USERNAME --password "$GITHUB_TOKEN" --store-password-in-clear-text`.
+
+Without a token, download the `.nupkg` from the GitHub Release into a folder and use that folder as a package source:
+`dotnet nuget add source ./packages --name local`.
