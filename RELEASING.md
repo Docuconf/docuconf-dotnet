@@ -23,8 +23,8 @@ Releases are automated with [release-please](https://github.com/googleapis/relea
 [CONTRIBUTING.md](CONTRIBUTING.md#how-releases-happen) for the commit conventions it reads.
 
 1. Merge the open release PR (`chore(main): release X.Y.Z`). It already updates `<Version>` in
-   `src/Docuconf/Docuconf.csproj` and `CHANGELOG.md`. The example contract does not need regenerating: CI's
-   comparison ignores `metadata.generator.version`.
+   `src/Docuconf/Docuconf.csproj` and `CHANGELOG.md`. The example contract does not need regenerating: the
+   contract check (`-p:DocuconfContractCheck=true`, `docuconf export --check`) ignores `metadata.generator.version`.
 2. release-please tags the merge commit `vX.Y.Z` and creates the GitHub release with the changelog entries.
 3. `.github/workflows/release.yml` runs on the tag. It takes the version from the tag, runs the full test suite
    (including `cue vet` of exported contracts, the shared conformance suite from docuconf-go `main`, and the

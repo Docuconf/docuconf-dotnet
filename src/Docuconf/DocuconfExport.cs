@@ -1,4 +1,5 @@
 using System.Reflection;
+using System.Text.RegularExpressions;
 using Docuconf.Contract;
 
 namespace Docuconf;
@@ -21,7 +22,8 @@ public static class DocuconfExport
     /// <remarks>
     /// <c>docuconf export &lt;file&gt;</c> writes the contract: CUE, or JSON when the file ends in <c>.json</c> or
     /// <c>--format json</c> is given. <c>-</c> writes it to stdout. With <c>--check</c> nothing is written: the command
-    /// exits with status 1 when the file differs from a fresh export, for CI. Any other <c>docuconf</c> command is a
+    /// exits with status 1 when the file differs from a fresh export, for CI. The check ignores only the value of
+    /// <c>metadata.generator.version</c>, the SDK version, so upgrading the SDK alone does not make a contract stale. Any other <c>docuconf</c> command is a
     /// usage error (exit status 2), so a typo never starts the app instead.
     /// </remarks>
     public static bool RunIfRequested(string[] args, Assembly? assembly = null)
@@ -84,7 +86,7 @@ public static class DocuconfExport
             if (check)
             {
                 var current = File.Exists(output) ? File.ReadAllText(output).Replace("\r\n", "\n", StringComparison.Ordinal) : null;
-                if (current != text)
+                if (current is null || IgnoreGeneratorVersion(current) != IgnoreGeneratorVersion(text))
                 {
                     stderr.WriteLine(current is null
                         ? $"docuconf: {output} does not exist; run docuconf export {output} to write it."
@@ -112,6 +114,16 @@ public static class DocuconfExport
 
         return 0;
     }
+
+    // generator: {... version: "x" ...} in CUE, "generator": {... "version": "x" ...} in JSON.
+    private static readonly Regex GeneratorVersion = new(@"(""?generator""?\s*:\s*\{[^{}]*?\bversion""?\s*:\s*)""[^""]*""", RegexOptions.CultureInvariant);
+
+    /// <summary>
+    /// Replaces the value of <c>metadata.generator.version</c> with a placeholder, so that two contracts that differ
+    /// only in the SDK version that wrote them compare equal. Everything else is left as it is.
+    /// </summary>
+    internal static string IgnoreGeneratorVersion(string contract) =>
+        GeneratorVersion.Replace(contract, "$1\"<generator-version>\"");
 
     /// <summary>Reads every <see cref="ConfigContractAttribute"/> class in <paramref name="assembly"/> and writes the contract.</summary>
     public static string ToCue(Assembly assembly, ContractReadSettings? settings, string? appVersion, out IReadOnlyList<string> warnings)

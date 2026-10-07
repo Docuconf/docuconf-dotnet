@@ -406,6 +406,47 @@ public sealed class DevxTests : IDisposable
         }
     }
 
+    // Every release bumps the SDK version, which contracts record in metadata.generator.version. The check ignores
+    // that value, and only that value, so a release does not make every committed contract stale.
+    [Theory]
+    [InlineData("contract.cue", "version: \"", "sdk: \"Docuconf.Options\"", "language: \"dotnet\"")]
+    [InlineData("contract.json", "\"version\": \"", "\"sdk\": \"Docuconf.Options\"", "\"language\": \"dotnet\"")]
+    public void Export_check_ignores_only_the_generator_version(string file, string versionPrefix, string sdk, string language)
+    {
+        var assembly = Compiler.Load(OrdersSource);
+        var dir = Directory.CreateTempSubdirectory("docuconf-export-").FullName;
+        try
+        {
+            var path = Path.Join(dir, file);
+            Assert.Equal(0, RunExport(assembly, "docuconf", "export", path).Code);
+            var fresh = File.ReadAllText(path);
+            var version = DocuconfExport.GeneratorInfo.Version;
+            var recorded = versionPrefix + version + "\"";
+            Assert.Contains(recorded, fresh, StringComparison.Ordinal);
+
+            int Check(string committed)
+            {
+                File.WriteAllText(path, committed);
+                return RunExport(assembly, "docuconf", "export", path, "--check").Code;
+            }
+
+            // Written by an older or newer SDK: still up to date.
+            Assert.Equal(0, Check(fresh.Replace(recorded, versionPrefix + "0.0.1-alpha.0\"", StringComparison.Ordinal)));
+            Assert.Equal(0, Check(fresh.Replace(recorded, versionPrefix + "99.0.0\"", StringComparison.Ordinal)));
+
+            // Any other difference fails, inside the generator block or out of it.
+            Assert.Equal(1, Check(fresh.Replace(sdk, sdk.Replace("Docuconf.Options", "Other.Sdk", StringComparison.Ordinal), StringComparison.Ordinal)));
+            Assert.Equal(1, Check(fresh.Replace(language, language.Replace("dotnet", "java", StringComparison.Ordinal), StringComparison.Ordinal)));
+            Assert.Equal(1, Check(fresh.Replace("8080", "8081", StringComparison.Ordinal)));
+            Assert.Equal(1, Check(fresh.Replace(recorded, versionPrefix + "99.0.0\"", StringComparison.Ordinal).Replace("8080", "8081", StringComparison.Ordinal)));
+            Assert.Equal(1, Check(fresh.Replace("orders", "orderz", StringComparison.Ordinal)));
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
     [Fact]
     public void A_mistyped_docuconf_command_is_a_usage_error()
     {
