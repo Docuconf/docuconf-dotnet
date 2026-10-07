@@ -4,7 +4,7 @@ using System.Text.RegularExpressions;
 namespace Docuconf.Contract;
 
 /// <summary>A value that does not parse or does not satisfy a constraint: a stable code and a message without the value.</summary>
-/// <param name="Code">A code from <see cref="Runtime.Codes"/>.</param>
+/// <param name="Code">A code from <see cref="Codes"/>.</param>
 /// <param name="Message">What is wrong. Never contains the value, so it is safe for secrets.</param>
 internal sealed record Problem(string Code, string Message);
 
@@ -46,7 +46,7 @@ internal static partial class WireFormat
             var index = i.ToString(CultureInfo.InvariantCulture);
             if (!set.Contains(index))
             {
-                return new Problem(Runtime.Codes.InvalidType, $"items must be numbered from {name}__0 with no gap, but {name}__{index} is not set");
+                return new Problem(Codes.InvalidType, $"items must be numbered from {name}__0 with no gap, but {name}__{index} is not set");
             }
         }
 
@@ -65,12 +65,12 @@ internal static partial class WireFormat
         value = 0;
         if (!IntegerSyntax().IsMatch(raw))
         {
-            return new Problem(Runtime.Codes.InvalidType, "is not an integer");
+            return new Problem(Codes.InvalidType, "is not an integer");
         }
 
         if (!long.TryParse(raw, NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out value))
         {
-            return new Problem(Runtime.Codes.OutOfRange, "is outside the 64-bit integer range");
+            return new Problem(Codes.OutOfRange, "is outside the 64-bit integer range");
         }
 
         return null;
@@ -98,7 +98,7 @@ internal static partial class WireFormat
     {
         var (min, max) = RangeOf(integerType);
         return (min is { } lo && value < lo) || (max is { } hi && value > hi)
-            ? new Problem(Runtime.Codes.OutOfRange, $"is outside the range of {(Nullable.GetUnderlyingType(integerType) ?? integerType).Name}")
+            ? new Problem(Codes.OutOfRange, $"is outside the range of {(Nullable.GetUnderlyingType(integerType) ?? integerType).Name}")
             : null;
     }
 
@@ -108,7 +108,7 @@ internal static partial class WireFormat
         const NumberStyles style = NumberStyles.AllowLeadingSign | NumberStyles.AllowDecimalPoint | NumberStyles.AllowExponent;
         if (!double.TryParse(raw, style, CultureInfo.InvariantCulture, out value) || !double.IsFinite(value))
         {
-            return new Problem(Runtime.Codes.InvalidType, "is not a finite number");
+            return new Problem(Codes.InvalidType, "is not a finite number");
         }
 
         return null;
@@ -120,7 +120,7 @@ internal static partial class WireFormat
         value = string.Equals(raw, "true", StringComparison.OrdinalIgnoreCase);
         return value || string.Equals(raw, "false", StringComparison.OrdinalIgnoreCase)
             ? null
-            : new Problem(Runtime.Codes.InvalidType, "is not a boolean (true or false)");
+            : new Problem(Codes.InvalidType, "is not a boolean (true or false)");
     }
 
     /// <summary>An absolute URL of the form <c>scheme://...</c>, as the platform checks it.</summary>
@@ -129,7 +129,7 @@ internal static partial class WireFormat
         value = null;
         if (!UrlSyntax().IsMatch(raw) || !Uri.TryCreate(raw, UriKind.Absolute, out value))
         {
-            return new Problem(Runtime.Codes.InvalidType, "is not a URL of the form scheme://...");
+            return new Problem(Codes.InvalidType, "is not a URL of the form scheme://...");
         }
 
         return null;
@@ -139,7 +139,7 @@ internal static partial class WireFormat
     public static Problem? CheckScheme(Uri url, IReadOnlyList<string>? schemes) =>
         schemes is null || schemes.Contains(url.Scheme, StringComparer.OrdinalIgnoreCase)
             ? null
-            : new Problem(Runtime.Codes.InvalidScheme, $"must use one of the schemes {string.Join(", ", schemes)}");
+            : new Problem(Codes.InvalidScheme, $"must use one of the schemes {string.Join(", ", schemes)}");
 
     /// <summary>A duration in one of the encodings of SPEC §5.</summary>
     public static Problem? ParseDuration(string raw, string encoding, out TimeSpan value)
@@ -153,7 +153,7 @@ internal static partial class WireFormat
             "timespan" => TimeSpanParser.TryParse(raw, out value),
             _ => throw new ArgumentException($"Unknown duration encoding '{encoding}'.", nameof(encoding)),
         };
-        return ok ? null : new Problem(Runtime.Codes.InvalidType, $"is not a duration in the {encoding} encoding, such as {Example(encoding)}");
+        return ok ? null : new Problem(Codes.InvalidType, $"is not a duration in the {encoding} encoding, such as {Example(encoding)}");
     }
 
     private static string Example(string encoding) => encoding switch

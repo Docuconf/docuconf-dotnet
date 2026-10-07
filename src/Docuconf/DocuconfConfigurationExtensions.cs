@@ -40,7 +40,7 @@ public static class DocuconfConfigurationExtensions
     {
         var settings = new DocuconfSettings();
         configure?.Invoke(settings);
-        var root = DocuconfBinder.Root(settings);
+        var root = DocuconfBinder.Root(settings, builder as IConfiguration);
 
         var index = builder.Sources.Count;
         for (var i = builder.Sources.Count - 1; i >= 0; i--)

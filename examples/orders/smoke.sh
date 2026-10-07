@@ -32,13 +32,22 @@ grep -q '"databaseUrl":"\*\*\*"' "$tmp/config.json" || { echo "GET /config did n
 echo "valid env: /healthz ok, /config $(cat "$tmp/config.json")"
 kill "$pid"; wait "$pid" 2>/dev/null || true; pid=""
 
-# 2. ORDERS__PORT=0 and no ORDERS__DATABASEURL: the service exits non-zero and names both.
-if env -u ORDERS__DATABASEURL ORDERS__PORT=0 dotnet "$app" >"$tmp/bad.txt" 2>&1; then
-  echo "service started with ORDERS__PORT=0 and no ORDERS__DATABASEURL" >&2; exit 1
+# 2. ORDERS__PORT=0 and no ORDERS__DATABASEURL: the service exits 1 with one line per problem, no stack trace.
+: >"$tmp/termination-log" # docuconf appends to it only when it exists, as /dev/termination-log does
+set +e
+env -u ORDERS__DATABASEURL ORDERS__PORT=0 ORDERS__WORKERCUONT=2 DOCUCONF_TERMINATION_LOG="$tmp/termination-log" \
+  dotnet "$app" >"$tmp/bad.txt" 2>&1
+code=$?
+set -e
+[ "$code" = 1 ] || { echo "expected exit status 1, got $code:" >&2; cat "$tmp/bad.txt" >&2; exit 1; }
+expected='docuconf: ORDERS__WORKERCUONT is set but not declared; did you mean ORDERS__WORKERCOUNT?
+docuconf: 2 configuration problems:
+  [missing_required] ORDERS__DATABASEURL: is required (Orders:DatabaseUrl)
+  [out_of_range] ORDERS__PORT: '"'"'0'"'"' is below the minimum 1'
+if [ "$(cat "$tmp/bad.txt")" != "$expected" ]; then
+  echo "unexpected startup output:" >&2; diff <(echo "$expected") "$tmp/bad.txt" >&2; exit 1
 fi
-for code in missing_required out_of_range; do
-  grep -q "$code" "$tmp/bad.txt" || { echo "startup output lacks $code:" >&2; cat "$tmp/bad.txt" >&2; exit 1; }
-done
-echo "bad env: exited non-zero with:"
+grep -q 'out_of_range' "$tmp/termination-log" || { echo "termination log not written" >&2; exit 1; }
+echo "bad env: exited 1 with:"
 sed 's/^/  /' "$tmp/bad.txt"
 echo "smoke: ok"

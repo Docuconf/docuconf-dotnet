@@ -13,9 +13,9 @@ namespace Docuconf.Runtime;
 /// </summary>
 internal static class FileChecks
 {
-    public static void LoadAll(object target, ContractModel model, DocuconfSettings settings, List<Violation> violations)
+    public static void LoadAll(object target, ContractModel model, DocuconfSettings settings, List<Violation> violations, Microsoft.Extensions.Configuration.IConfiguration? configuration = null)
     {
-        var root = DocuconfBinder.Root(settings);
+        var root = DocuconfBinder.Root(settings, configuration);
         foreach (var spec in model.Files.Values)
         {
             var path = root.Length == 0 ? spec.Path : Path.Join(root, spec.Path);

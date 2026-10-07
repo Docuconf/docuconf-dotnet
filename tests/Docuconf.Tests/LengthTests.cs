@@ -154,14 +154,15 @@ public sealed class LengthTests
             ["Lengths:Branches:1"] = "😀😀😀😀😀",
         });
 
+        // The same words as the contract-first mode, not the DataAnnotations sentence.
         Assert.Equal(
             [
-                "[out_of_range] LENGTHS__BRANCHES: Item 1 of Branches is 5 characters, above the maximum 4.",
+                "[out_of_range] LENGTHS__BRANCHES: item 1 is 5 characters, above itemMaxLength 4",
                 "[out_of_range] LENGTHS__CALLBACK: 'https://a.example/runs/42' is 25 characters, above maxLength 24",
             ],
             failures);
         Assert.Equal(
-            ["[out_of_range] LENGTHS__BRANCHES: Item 1 of Branches is 1 characters, below the minimum 2."],
+            ["[out_of_range] LENGTHS__BRANCHES: item 1 is 1 characters, below itemMinLength 2"],
             Failures(new() { ["Lengths:Branches:0"] = "BE", ["Lengths:Branches:1"] = "B" }));
     }
 

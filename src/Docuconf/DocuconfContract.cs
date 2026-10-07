@@ -1,4 +1,5 @@
 using System.Collections;
+using System.Diagnostics;
 using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -65,7 +66,7 @@ public sealed class DocuconfContract
             values[spec.Name] = ContractFirstLoader.Load(spec, profileDefaults?.GetValueOrDefault(spec.Name), environment, violations);
         }
 
-        return new ContractLoadResult(new ContractValues(values), violations);
+        return new ContractLoadResult(new ContractValues(values, Model), violations);
     }
 
     /// <summary>
@@ -80,8 +81,37 @@ public sealed class DocuconfContract
         if (result.Violations.Count > 0)
         {
             var lines = result.Violations.Select(v => v.ToString()).ToList();
-            TerminationLog.Write(settings ?? new DocuconfSettings(), Model.Service.Length > 0 ? Model.Service : "contract", lines);
+            TerminationLog.Write(settings ?? new DocuconfSettings(), DocuconfStartup.Format(lines));
             throw new ContractValidationException(result.Violations);
+        }
+
+        return result.Values;
+    }
+
+    /// <summary>
+    /// Validates <paramref name="environment"/> (the process environment when null) and returns the typed values. When
+    /// the environment violates the contract, prints <c>docuconf: N configuration problems:</c> and one line per
+    /// violation to stderr and the termination log, and exits with status 1.
+    /// </summary>
+    public ContractValues LoadOrExit(IReadOnlyDictionary<string, string>? environment = null, DocuconfSettings? settings = null)
+    {
+        settings ??= new DocuconfSettings();
+        environment ??= ProcessEnvironment();
+        foreach (var hint in DocuconfStartup.TypoHints(Model.Vars.Values.ToList(), environment.Keys))
+        {
+            settings.Error.WriteLine(hint);
+        }
+
+        var result = Validate(environment);
+        if (!result.IsValid)
+        {
+            DocuconfStartup.Report(settings, result.Violations.Select(v => v.ToString()).ToList());
+            if (settings.ThrowOnInvalid)
+            {
+                throw new ContractValidationException(result.Violations);
+            }
+
+            settings.Exit(1);
         }
 
         return result.Values;
@@ -114,12 +144,115 @@ public sealed class ContractValidationException(IReadOnlyList<Violation> violati
 /// <c>int</c>, <see cref="double"/> for <c>float</c>, <see cref="bool"/>, <see cref="TimeSpan"/> for <c>duration</c>,
 /// <see cref="Uri"/> for <c>url</c>, <c>IReadOnlyList&lt;string&gt;</c> or <c>IReadOnlyList&lt;long&gt;</c> for
 /// <c>list</c>, and a <see cref="JsonNode"/> for <c>json</c>. An optional variable with no value and no default is null.
+/// <see cref="ToString"/> and the debugger show secret values as <c>***</c>.
 /// </summary>
-public sealed class ContractValues(IReadOnlyDictionary<string, object?> values) : IReadOnlyDictionary<string, object?>
+[DebuggerDisplay("Count = {Count}")]
+[DebuggerTypeProxy(typeof(ContractValuesDebugView))]
+public sealed class ContractValues : IReadOnlyDictionary<string, object?>
 {
-    /// <summary>The value of <paramref name="name"/> as <typeparamref name="T"/>, or default when it is absent.</summary>
+    private readonly IReadOnlyDictionary<string, object?> values;
+    private readonly IReadOnlySet<string> secrets;
+    private readonly string service;
+
+    /// <summary>Wraps typed values by variable name. None is treated as secret.</summary>
+    public ContractValues(IReadOnlyDictionary<string, object?> values)
+        : this(values, null)
+    {
+    }
+
+    internal ContractValues(IReadOnlyDictionary<string, object?> values, ContractModel? model)
+    {
+        this.values = values;
+        secrets = model?.Vars.Values.Where(v => v.Secret).Select(v => v.Name).ToHashSet(StringComparer.Ordinal) ?? [];
+        service = model?.Service ?? "";
+    }
+
+    /// <summary>
+    /// The value of <paramref name="name"/> as <typeparamref name="T"/>, or default when it has no value. An <c>int</c>
+    /// variable can be read as any integer type that holds its value, and an <c>int</c> or <c>float</c> as
+    /// <see cref="double"/>.
+    /// </summary>
     /// <exception cref="KeyNotFoundException">The contract does not declare <paramref name="name"/>.</exception>
-    public T? Get<T>(string name) => values[name] is T value ? value : default;
+    /// <exception cref="InvalidCastException">The value is not a <typeparamref name="T"/>.</exception>
+    /// <exception cref="OverflowException">The integer does not fit in <typeparamref name="T"/>.</exception>
+    public T? Get<T>(string name)
+    {
+        if (!values.TryGetValue(name, out var value))
+        {
+            throw new KeyNotFoundException(NotDeclared(name));
+        }
+
+        if (value is null)
+        {
+            return default;
+        }
+
+        if (value is T typed)
+        {
+            return typed;
+        }
+
+        var target = Nullable.GetUnderlyingType(typeof(T)) ?? typeof(T);
+        if (value is long l && ContractReader.IsInteger(target))
+        {
+            try
+            {
+                return (T)Convert.ChangeType(l, target, CultureInfo.InvariantCulture);
+            }
+            catch (OverflowException)
+            {
+                // Never the value: it may be a secret.
+                throw new OverflowException($"{name} does not fit in {target.Name}; read it with Get<long>(\"{name}\").");
+            }
+        }
+
+        if (value is long or double && (target == typeof(double) || target == typeof(float) || target == typeof(decimal)))
+        {
+            return (T)Convert.ChangeType(value, target, CultureInfo.InvariantCulture);
+        }
+
+        throw new InvalidCastException($"{name} is a {Friendly(value)} value, not {Friendly(typeof(T))}; read it with Get<{Friendly(value)}>(\"{name}\").");
+    }
+
+    private string NotDeclared(string name)
+    {
+        var where = service.Length > 0 ? $"contract '{service}'" : "the contract";
+        var closest = values.Keys
+            .Select(k => (Key: k, Distance: DocuconfStartup.Distance(name, k, 2)))
+            .Where(k => k.Distance <= 2)
+            .OrderBy(k => k.Distance).ThenBy(k => k.Key, StringComparer.Ordinal)
+            .Select(k => k.Key)
+            .FirstOrDefault();
+        return closest is null ? $"{name} is not in {where}." : $"{name} is not in {where}; did you mean {closest}?";
+    }
+
+    private static string Friendly(object value) => value switch
+    {
+        IReadOnlyList<long> => "IReadOnlyList<long>",
+        IReadOnlyList<string> => "IReadOnlyList<string>",
+        JsonNode => "JsonNode",
+        _ => Friendly(value.GetType()),
+    };
+
+    private static string Friendly(Type type) =>
+        type == typeof(long) ? "long"
+        : type == typeof(int) ? "int"
+        : type == typeof(double) ? "double"
+        : type == typeof(bool) ? "bool"
+        : type == typeof(string) ? "string"
+        : type.IsGenericType ? $"{type.Name[..type.Name.IndexOf('`')]}<{string.Join(", ", type.GetGenericArguments().Select(Friendly))}>"
+        : type.Name;
+
+    /// <summary>The variables and their values, with secrets shown as <c>***</c>.</summary>
+    public override string ToString() =>
+        "ContractValues { " + string.Join(", ", values.OrderBy(v => v.Key, StringComparer.Ordinal).Select(v => $"{v.Key} = {Display(v.Key)}")) + " }";
+
+    internal object? Display(string key) => secrets.Contains(key) && values[key] is not null ? "***" : values[key] switch
+    {
+        IEnumerable<string> list => "[" + string.Join(", ", list) + "]",
+        IEnumerable<long> list => "[" + string.Join(", ", list) + "]",
+        var v => v,
+    };
 
     /// <inheritdoc />
     public object? this[string key] => values[key];
@@ -143,6 +276,13 @@ public sealed class ContractValues(IReadOnlyDictionary<string, object?> values) 
     public IEnumerator<KeyValuePair<string, object?>> GetEnumerator() => values.GetEnumerator();
 
     IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
+
+    private sealed class ContractValuesDebugView(ContractValues values)
+    {
+        [DebuggerBrowsable(DebuggerBrowsableState.RootHidden)]
+        public KeyValuePair<string, object?>[] Items =>
+            values.Keys.Order(StringComparer.Ordinal).Select(k => new KeyValuePair<string, object?>(k, values.Display(k))).ToArray();
+    }
 }
 
 /// <summary>Reads one variable of a contract from an environment.</summary>

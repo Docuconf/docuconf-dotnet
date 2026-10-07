@@ -47,10 +47,19 @@ internal static class DocuconfBinder
                 continue;
             }
 
-            var section = configuration.GetSection(spec.ConfigKey);
+            var section = SectionOf(configuration, spec);
             if (!IsSet(section, spec))
             {
                 // Unset (or empty, which counts as unset for non-strings): the initializer stands.
+                continue;
+            }
+
+            // A list arrives as NAME__0, NAME__1, ...; one value such as NAME=a,b would otherwise bind as an empty list.
+            if (spec.Type == VarType.List && section.Value is { Length: > 0 } scalar)
+            {
+                var shown = spec.Secret ? "" : $" ('{scalar}')";
+                violations.Add(new Violation(Codes.InvalidType, spec.Name,
+                    $"is a list; set {spec.Name}__0, {spec.Name}__1, ... instead of one value{shown}"));
                 continue;
             }
 
@@ -94,7 +103,7 @@ internal static class DocuconfBinder
             }
         }
 
-        FileChecks.LoadAll(target, model, settings, violations);
+        FileChecks.LoadAll(target, model, settings, violations, configuration);
         return violations;
     }
 
@@ -323,8 +332,35 @@ internal static class DocuconfBinder
         return current;
     }
 
-    internal static string Root(DocuconfSettings settings) =>
-        settings.FileRoot ?? Environment.GetEnvironmentVariable("DOCUCONF_FILE_ROOT") ?? "";
+    /// <summary>
+    /// The configuration section a variable binds from. A variable renamed with <see cref="EnvNameAttribute"/> is read
+    /// from its environment variable name first (the name the contract exports and the platform renders), then from its
+    /// configuration path, where appsettings files put it.
+    /// </summary>
+    internal static IConfigurationSection SectionOf(IConfiguration configuration, VarSpec spec)
+    {
+        if (!string.Equals(spec.Name, DerivedName(spec.ConfigKey), StringComparison.Ordinal))
+        {
+            var renamed = configuration.GetSection(spec.Name);
+            if (renamed.Exists())
+            {
+                return renamed;
+            }
+        }
+
+        return configuration.GetSection(spec.ConfigKey);
+    }
+
+    /// <summary>The environment variable name derived from a configuration path: <c>Billing:Port</c> is <c>BILLING__PORT</c>.</summary>
+    internal static string DerivedName(string configKey) => configKey.Replace(":", "__", StringComparison.Ordinal).ToUpperInvariant();
+
+    internal static string Root(DocuconfSettings settings, IConfiguration? configuration = null) =>
+        settings.FileRoot
+        ?? NonEmpty(configuration?["Docuconf:FileRoot"])
+        ?? NonEmpty(configuration?["DOCUCONF_FILE_ROOT"])
+        ?? Environment.GetEnvironmentVariable("DOCUCONF_FILE_ROOT") ?? "";
+
+    private static string? NonEmpty(string? value) => string.IsNullOrEmpty(value) ? null : value;
 
     internal static JsonSerializerOptions JsonOptions => SchemaGenerator.SerializerOptions;
 }

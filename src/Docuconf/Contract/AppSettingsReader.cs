@@ -91,7 +91,7 @@ internal static class AppSettingsReader
 
         if (spec.Secret)
         {
-            errors.Add($"{fileName} sets {spec.ConfigKey}, which is [Secret]. A secret in appsettings ships inside the image; supply it from a Kubernetes Secret instead.");
+            errors.Add($"{fileName} sets {spec.ConfigKey}, which is [Secret]. A secret in appsettings ships inside the image; supply it from a Kubernetes Secret instead. For local runs use dotnet user-secrets or an environment variable.");
             return null;
         }
 
