@@ -7,14 +7,6 @@ using System.Text.RegularExpressions;
 
 namespace Docuconf.Contract;
 
-/// <summary>Thrown when options classes cannot be turned into a valid contract. Lists every problem found.</summary>
-public sealed class ContractException(IReadOnlyList<string> errors)
-    : Exception("The configuration contract is invalid:" + Environment.NewLine + string.Join(Environment.NewLine, errors.Select(e => "  - " + e)))
-{
-    /// <summary>Every problem found.</summary>
-    public IReadOnlyList<string> Errors { get; } = errors;
-}
-
 /// <summary>Settings for reading a contract.</summary>
 public sealed class ContractReadSettings
 {
@@ -179,6 +171,7 @@ public static partial class ContractReader
         List<string> errors,
         List<(FileSpec, string, string, Type)> pending)
     {
+        CheckSecretsNotPrinted(type, errors);
         foreach (var prop in type.GetProperties(BindingFlags.Public | BindingFlags.Instance))
         {
             if (prop.GetIndexParameters().Length > 0 || prop.SetMethod is not { IsPublic: true })
@@ -223,8 +216,9 @@ public static partial class ContractReader
             }
             else
             {
-                model.Unmodeled.Add((key, propPath));
-                model.Warnings.Add($"{key}: {Describe(clr)} cannot be set through environment variables, so it is not in the contract. It still binds from appsettings.");
+                // The binder would still read it (from appsettings or KEY__SUB environment variables) behind the
+                // contract's back, so the app has to say which it is.
+                errors.Add($"{key}: {Describe(clr)} cannot be described by the contract, but the app would still read it. Mark it [JsonVar] to make it one JSON variable, or [External(\"appsettings\")] to keep it out of the contract.");
             }
         }
     }
@@ -303,6 +297,8 @@ public static partial class ContractReader
         {
             type = VarType.Float;
         }
+
+        CheckConstraintsFit(prop, clr, type, key, errors);
 
         object? min = null, max = null;
         if (prop.GetCustomAttribute<RangeAttribute>() is { } range)
@@ -398,6 +394,70 @@ public static partial class ContractReader
         }
 
         model.Vars[name] = spec;
+    }
+
+    /// <summary>
+    /// A record's compiler-generated <c>ToString</c> prints every property, so a <see cref="SecretAttribute"/> value
+    /// would end up in any log line that prints the options. The record must leave secrets out of <c>PrintMembers</c>.
+    /// </summary>
+    private static void CheckSecretsNotPrinted(Type type, List<string> errors)
+    {
+        var printMembers = type.GetMethod("PrintMembers", BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Instance, [typeof(System.Text.StringBuilder)]);
+        bool isRecord = type.GetMethod("<Clone>$") is not null;
+        if (!isRecord || printMembers?.GetCustomAttribute<System.Runtime.CompilerServices.CompilerGeneratedAttribute>() is null)
+        {
+            return;
+        }
+
+        foreach (var secret in type.GetProperties(BindingFlags.Public | BindingFlags.Instance).Where(p => p.GetCustomAttribute<SecretAttribute>() is not null))
+        {
+            errors.Add($"{type.Name}.{secret.Name}: {type.Name} is a record, so its generated ToString prints this [Secret] value. Make {type.Name} a class, or declare PrintMembers to leave secrets out.");
+        }
+    }
+
+    /// <summary>
+    /// A constraint the variable's contract type cannot carry would be dropped from the contract while the app still
+    /// enforces it (or, for [UrlSchemes], exported where the platform rejects it), so it is a declaration error.
+    /// </summary>
+    private static void CheckConstraintsFit(PropertyInfo prop, Type clr, VarType type, string key, List<string> errors)
+    {
+        var exported = type.ToString().ToLowerInvariant();
+        void Misfit(string attribute, string fits) => errors.Add(
+            $"{key}: [{attribute}] applies to {fits}, but {clr.Name} is exported as a{(exported[0] is 'a' or 'e' or 'i' or 'o' or 'u' ? "n" : "")} {exported} variable. Remove the attribute or change the property's type.");
+
+        if (prop.GetCustomAttribute<UrlSchemesAttribute>() is not null && type != VarType.Url)
+        {
+            Misfit("UrlSchemes", "string or Uri properties");
+        }
+
+        if (prop.GetCustomAttribute<AllowedValuesAttribute>() is not null && (type != VarType.Enum || clr.IsEnum))
+        {
+            Misfit("AllowedValues", clr.IsEnum ? "string properties; a C# enum already limits the values to its members" : "string properties");
+        }
+
+        if (prop.GetCustomAttribute<RangeAttribute>() is not null && type is not (VarType.Int or VarType.Float or VarType.Duration))
+        {
+            Misfit("Range", "numbers and TimeSpan");
+        }
+
+        if (prop.GetCustomAttribute<RegularExpressionAttribute>() is not null && type != VarType.String)
+        {
+            Misfit("RegularExpression", "string properties");
+        }
+
+        if (prop.GetCustomAttribute<StringLengthAttribute>() is not null && type != VarType.String)
+        {
+            Misfit("StringLength", "string properties");
+        }
+
+        foreach (var name in new[] { (typeof(MinLengthAttribute), "MinLength"), (typeof(MaxLengthAttribute), "MaxLength"), (typeof(LengthAttribute), "Length") }
+            .Where(a => prop.GetCustomAttribute(a.Item1) is not null).Select(a => a.Item2))
+        {
+            if (type is not (VarType.String or VarType.List))
+            {
+                Misfit(name, "strings and lists");
+            }
+        }
     }
 
     private static void ReadFile(

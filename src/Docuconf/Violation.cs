@@ -1,6 +1,6 @@
 using System.Runtime.CompilerServices;
 
-namespace Docuconf.Runtime;
+namespace Docuconf;
 
 /// <summary>Stable error codes (SPEC §11.2).</summary>
 public static class Codes

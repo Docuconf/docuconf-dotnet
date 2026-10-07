@@ -202,8 +202,39 @@ public sealed class GatewayFiles : IDisposable
         return provider.GetRequiredService<IOptions<T>>().Value;
     }
 
+    /// <summary>
+    /// Starts <typeparamref name="T"/> the way a host does (its IStartupValidator), capturing what it prints, the
+    /// exit code it asks for, and the termination log.
+    /// </summary>
+    public StartResult Start<T>(Dictionary<string, string?> config, string[]? environment = null, Action<IServiceCollection>? more = null)
+        where T : class
+    {
+        var configuration = new ConfigurationBuilder().AddInMemoryCollection(config).Build();
+        var log = Path.Join(Root, "termination-log");
+        File.WriteAllText(log, "");
+        var error = new StringWriter();
+        int? exit = null;
+        var services = new ServiceCollection();
+        services.AddSingleton<IConfiguration>(configuration);
+        services.AddDocuconf<T>(s =>
+        {
+            s.FileRoot = Root;
+            s.TerminationLogPath = log;
+            s.Clock = () => Now;
+            s.Error = error;
+            s.Exit = code => exit = code;
+            s.EnvironmentNames = () => environment ?? [];
+        });
+        more?.Invoke(services);
+        using var provider = services.BuildServiceProvider();
+        provider.GetRequiredService<IStartupValidator>().Validate();
+        return new StartResult(error.ToString(), exit, File.ReadAllText(log));
+    }
+
     public void Dispose() => Directory.Delete(Root, recursive: true);
 }
+
+public sealed record StartResult(string Stderr, int? ExitCode, string TerminationLog);
 
 public sealed class CertificateAuthority
 {

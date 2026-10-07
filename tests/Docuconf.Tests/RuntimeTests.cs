@@ -181,14 +181,12 @@ public sealed class RuntimeTests : IDisposable
     [Fact]
     public void Failures_are_written_to_the_termination_log()
     {
-        var log = Path.Join(_files.Root, "termination-log");
-        File.WriteAllText(log, "");
         var config = _files.Config();
         config["Gateway:Port"] = "0";
 
-        Assert.Throws<OptionsValidationException>(() => _files.Resolve<GatewayOptions>(config, terminationLog: log));
+        var result = _files.Start<GatewayOptions>(config);
 
-        Assert.Contains("[out_of_range] GATEWAY__PORT", File.ReadAllText(log), StringComparison.Ordinal);
+        Assert.Equal("docuconf: 1 configuration problem:\n  [out_of_range] GATEWAY__PORT: '0' is below the minimum 1\n", result.TerminationLog);
     }
 
     [Theory]
@@ -197,18 +195,16 @@ public sealed class RuntimeTests : IDisposable
     [InlineData("ref+awssecrets://gw/database-url", "ref+")]
     public void Unresolved_injector_references_in_secrets_are_reported_without_the_value(string reference, string scheme)
     {
-        var log = Path.Join(_files.Root, "termination-log");
-        File.WriteAllText(log, "");
         var config = _files.Config();
         config["Gateway:DatabaseUrl"] = reference;
 
-        var ex = Assert.Throws<OptionsValidationException>(() => _files.Resolve<GatewayOptions>(config, terminationLog: log));
+        var ex = Assert.Throws<OptionsValidationException>(() => _files.Resolve<GatewayOptions>(config));
 
         Assert.Equal(["invalid_type"], Codes(ex));
         Assert.Equal(
             $"[invalid_type] GATEWAY__DATABASEURL: holds an unresolved {scheme} reference; the injector that should resolve it did not run",
             ex.Failures.Single());
-        var written = File.ReadAllText(log);
+        var written = _files.Start<GatewayOptions>(config).TerminationLog;
         Assert.Contains($"unresolved {scheme} reference", written, StringComparison.Ordinal);
         Assert.DoesNotContain(reference, written, StringComparison.Ordinal);
         Assert.DoesNotContain(reference, ex.Message, StringComparison.Ordinal);
