@@ -57,10 +57,11 @@ jobs:
       - run: go install cuelang.org/go/cmd/cue@v0.17.1
       - name: Build examples/orders
         run: dotnet build examples/orders -c Release
+      # Ignores metadata.generator.version, which release PRs bump.
       - name: contract.cue is up to date
         run: |
           dotnet examples/orders/bin/Release/net10.0/Orders.Api.dll docuconf export "$RUNNER_TEMP/contract.cue"
-          diff -u examples/orders/contract.cue "$RUNNER_TEMP/contract.cue"
+          scripts/check-generated.sh --files examples/orders/contract.cue "$RUNNER_TEMP/contract.cue"
       - name: contract.cue passes the meta-schema
         run: |
           mkdir -p "$RUNNER_TEMP/cue/orders"
