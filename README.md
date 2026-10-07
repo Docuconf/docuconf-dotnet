@@ -42,6 +42,12 @@ Integer types narrower than 64 bits export their own range, so the platform neve
 hold: an `int` gets `min`/`max` of ±2³¹ (clamped further by `[Range]`), a `uint` gets `min: 0`, and the items of an
 `int[]` get `itemMin`/`itemMax` the same way. DataAnnotations has nothing for the items of a collection, so
 `[ItemRange]` adds it; an item outside its bounds, or one its type cannot hold, fails startup with `out_of_range`.
+Lengths count characters (Unicode scalar values), not UTF-16 units, so `日本` is 2 and an emoji is 1: `[MaxLength]` or
+`[StringLength]` on a URL exports `maxLength`, `[JsonVar(MaxLength = 256)]` bounds a `json` value as received (or, from
+an appsettings file or overlay, as compact JSON), and `[ItemLength(2, 4)]` bounds every item of a string list
+(`itemMinLength`/`itemMaxLength`), for apps that store values in fixed-width fields. A value above its limit fails
+startup with `out_of_range`; a secret's error gives its length, never its value. `[ItemLength]` on an integer list,
+a minimum above the maximum, or a minimum length on a URL is a declaration error.
 Values are read as the platform writes them (SPEC §5), whichever configuration source they come from: integers in
 base 10, numbers with a `.` whatever the culture, `true`/`false`, URLs with a `scheme://`, and enum names exactly as
 declared (`Warn`, not `WARN`). Nothing is trimmed.
@@ -51,6 +57,9 @@ declared (`Warn`, not `WARN`). Nothing is trimmed.
 | `[Secret]` | Must come from a Kubernetes Secret; never printed. |
 | `[UrlSchemes("https")]` | A URL with an allowed scheme. |
 | `[ItemRange(0, 1023)]` on an `int[]`, `List<long>`, ... | Bounds every item of an integer list (`itemMin`/`itemMax`). |
+| `[ItemLength(2, 4)]` on a `string[]`, `List<string>`, ... | Bounds the length of every item of a string list, in characters (`itemMinLength`/`itemMaxLength`). |
+| `[MaxLength(200)]` with `[UrlSchemes]` or `[Url]` | Bounds a URL's length in characters (`maxLength`). |
+| `[JsonVar(MaxLength = 256)]` | Bounds a `json` value's length in characters, measured as received (`maxLength`). |
 | `[TlsFile(dir)]` on a `TlsKeyPair` | `tls.crt`, `tls.key`, optional `ca.crt`. Checked for key match, expiry (`MinRemaining`), `DnsNames`, `KeyAlgorithms`, and the chain to `ca.crt` (`RequireCA`). `.Current` reloads rotated certificates. |
 | `[ConfigFile(path)]` on any class | A JSON file deserialized into that class. The contract carries a JSON Schema generated from it, so the platform checks the file against the same type. |
 | `[CaBundleFile(path)]` on a `CaBundle` | PEM CA certificates. |

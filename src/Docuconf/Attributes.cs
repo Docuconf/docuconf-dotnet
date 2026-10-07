@@ -85,6 +85,61 @@ public sealed class ItemRangeAttribute(long minimum, long maximum) : ValidationA
     };
 }
 
+/// <summary>
+/// Bounds the length of every item of a string list, such as <c>string[]</c> or <c>List&lt;string&gt;</c>; exported as
+/// the contract's <c>itemMinLength</c> and <c>itemMaxLength</c> (SPEC §4.3), for apps that store items in fixed-width
+/// fields. Lengths count characters (Unicode scalar values), not UTF-16 units: <c>日本</c> is 2 and an emoji is 1. An
+/// item outside the bounds is <c>out_of_range</c> at startup.
+/// </summary>
+/// <example><code>[ItemLength(2, 4)] public string[] Branches { get; set; } = [];</code></example>
+[AttributeUsage(AttributeTargets.Property)]
+public sealed class ItemLengthAttribute : ValidationAttribute
+{
+    /// <summary>Bounds each item to at most <paramref name="maximumLength"/> characters.</summary>
+    public ItemLengthAttribute(int maximumLength)
+    {
+        MaximumLength = maximumLength;
+    }
+
+    /// <summary>Bounds each item to between <paramref name="minimumLength"/> and <paramref name="maximumLength"/> characters.</summary>
+    public ItemLengthAttribute(int minimumLength, int maximumLength)
+    {
+        MinimumLength = minimumLength;
+        MaximumLength = maximumLength;
+    }
+
+    /// <summary>The least length of an item, in characters. Zero means no lower bound.</summary>
+    public int MinimumLength { get; init; }
+
+    /// <summary>The greatest length of an item, in characters.</summary>
+    public int MaximumLength { get; }
+
+    /// <inheritdoc />
+    protected override ValidationResult? IsValid(object? value, ValidationContext validationContext)
+    {
+        if (value is not System.Collections.IEnumerable items || value is string)
+        {
+            return ValidationResult.Success;
+        }
+
+        int i = 0;
+        foreach (var item in items)
+        {
+            if (item is string s && s.EnumerateRunes().Count() is var n && (n < MinimumLength || n > MaximumLength))
+            {
+                var bound = n < MinimumLength ? $"below the minimum {MinimumLength}" : $"above the maximum {MaximumLength}";
+                return new ValidationResult(
+                    $"Item {i} of {validationContext.DisplayName} is {n} characters, {bound}.",
+                    validationContext.MemberName is { } member ? [member] : null);
+            }
+
+            i++;
+        }
+
+        return ValidationResult.Success;
+    }
+}
+
 /// <summary>Overrides the environment variable name derived from the configuration path.</summary>
 [AttributeUsage(AttributeTargets.Property)]
 public sealed class EnvNameAttribute(string name) : Attribute
@@ -106,7 +161,15 @@ public sealed class EnvNameAttribute(string name) : Attribute
 /// DataAnnotations on the type are checked at startup.
 /// </remarks>
 [AttributeUsage(AttributeTargets.Property)]
-public sealed class JsonVarAttribute : Attribute;
+public sealed class JsonVarAttribute : Attribute
+{
+    /// <summary>
+    /// The greatest length of the value, in characters (Unicode scalar values), exported as the contract's
+    /// <c>maxLength</c> (SPEC §4.3). An environment variable is measured as received, whitespace included, before it
+    /// is parsed; a nested section as the compact JSON the platform renders. Zero means no limit.
+    /// </summary>
+    public int MaxLength { get; init; }
+}
 
 /// <summary>
 /// The value comes from a configuration provider the platform does not control, such as Azure Key Vault,

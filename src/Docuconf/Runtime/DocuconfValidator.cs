@@ -76,6 +76,11 @@ internal sealed class DocuconfValidateOptions<T>(IConfiguration configuration, D
                 continue; // Presence is checked against configuration above.
             }
 
+            if (spec.Type == VarType.Url && attr is StringLengthAttribute or MaxLengthAttribute or LengthAttribute)
+            {
+                continue; // maxLength, checked while binding in characters rather than UTF-16 units.
+            }
+
             if (attr.GetValidationResult(value, context) is not { } result || result == ValidationResult.Success)
             {
                 continue;
@@ -91,7 +96,7 @@ internal sealed class DocuconfValidateOptions<T>(IConfiguration configuration, D
 
     private static string CodeFor(ValidationAttribute attr, object? value) => attr switch
     {
-        RangeAttribute or ItemRangeAttribute => Codes.OutOfRange,
+        RangeAttribute or ItemRangeAttribute or ItemLengthAttribute => Codes.OutOfRange,
         RegularExpressionAttribute => Codes.PatternMismatch,
         AllowedValuesAttribute or DeniedValuesAttribute => Codes.NotInEnum,
         UrlAttribute => Codes.InvalidScheme,
