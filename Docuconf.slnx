@@ -6,6 +6,7 @@
     <Project Path="samples/Billing.Api/Billing.Api.csproj" />
   </Folder>
   <Folder Name="/src/">
+    <Project Path="src/Docuconf.Analyzers/Docuconf.Analyzers.csproj" />
     <Project Path="src/Docuconf/Docuconf.csproj" />
   </Folder>
   <Folder Name="/tests/">

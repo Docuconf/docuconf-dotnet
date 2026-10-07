@@ -1,0 +1,30 @@
+<Project>
+  <!--
+    Build-time contract export. Set DocuconfContractPath in the app's project file and every build writes the contract
+    from the built app, the way docuconf export does by hand:
+
+      <DocuconfContractPath>contract.cue</DocuconfContractPath>
+
+    A path ending in .json writes JSON. With -p:DocuconfContractCheck=true the build writes nothing and fails when the
+    file is out of date, for CI. In a project with several target frameworks, DocuconfExportTargetFramework picks the
+    one that exports (the first one by default). Program.cs must start with DocuconfExport.RunIfRequested(args).
+  -->
+  <PropertyGroup>
+    <DocuconfContractCheck Condition="'$(DocuconfContractCheck)' == ''">false</DocuconfContractCheck>
+  </PropertyGroup>
+
+  <Target Name="DocuconfExportContract"
+          AfterTargets="Build"
+          Condition="'$(DocuconfContractPath)' != '' and '$(OutputType)' != 'Library' and ('$(DocuconfExportTargetFramework)' == '' or '$(DocuconfExportTargetFramework)' == '$(TargetFramework)')">
+    <PropertyGroup>
+      <_DocuconfDotnet>$(DOTNET_HOST_PATH)</_DocuconfDotnet>
+      <_DocuconfDotnet Condition="'$(_DocuconfDotnet)' == ''">dotnet</_DocuconfDotnet>
+      <_DocuconfContractFullPath>$([System.IO.Path]::Combine('$(MSBuildProjectDirectory)', '$(DocuconfContractPath)'))</_DocuconfContractFullPath>
+      <_DocuconfCheckArg Condition="'$(DocuconfContractCheck)' == 'true'"> --check</_DocuconfCheckArg>
+    </PropertyGroup>
+    <Exec Command="&quot;$(_DocuconfDotnet)&quot; &quot;$(TargetPath)&quot; docuconf export &quot;$(_DocuconfContractFullPath)&quot;$(_DocuconfCheckArg)"
+          WorkingDirectory="$(OutDir)"
+          CustomErrorRegularExpression="^docuconf: .* is out of date|^The configuration contract is invalid"
+          StandardOutputImportance="low" />
+  </Target>
+</Project>
