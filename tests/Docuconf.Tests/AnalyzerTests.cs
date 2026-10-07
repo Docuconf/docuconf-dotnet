@@ -103,8 +103,9 @@ public sealed class AnalyzerTests
     [InlineData("[Range(1, 10)] public string Name { get; set; } = \"\";", "[Range] applies to numbers and TimeSpan, but String is exported as a string variable")]
     [InlineData("[AllowedValues(1, 2)] public int Level { get; set; } = 1;", "[AllowedValues] applies to string properties, but Int32 is exported as an int variable")]
     [InlineData("[RegularExpression(\"^a$\")] public int Code { get; set; } = 1;", "[RegularExpression] applies to string properties, but Int32 is exported as an int variable")]
-    [InlineData("[MinLength(1)] public int Count { get; set; } = 1;", "[MinLength] applies to strings and lists, but Int32 is exported as an int variable")]
+    [InlineData("[MinLength(1)] public int Count { get; set; } = 1;", "[MinLength] applies to strings, urls and lists, but Int32 is exported as an int variable")]
     [InlineData("[ItemRange(0, 9)] public List<string> Names { get; set; } = [];", "[ItemRange] applies to lists of integers, such as int[] or List<long>, but List is exported as a list variable")]
+    [InlineData("[ItemLength(2, 4)] public List<long> Shards { get; set; } = [];", "[ItemLength] applies to lists of strings, such as string[] or List<string>, but List is exported as a list variable")]
     public async Task A_constraint_that_does_not_fit_the_type_is_an_error(string property, string expected)
     {
         var diagnostics = await Compiler.Analyze($$"""
@@ -117,6 +118,27 @@ public sealed class AnalyzerTests
             """);
 
         Assert.Contains(diagnostics, d => d.StartsWith("DOCUCONF003: ", StringComparison.Ordinal) && d.Contains(expected, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Length_constraints_on_urls_and_string_lists_are_fine()
+    {
+        var diagnostics = await Compiler.Analyze("""
+            [ConfigContract("svc", Section = "Svc")]
+            public sealed class SvcOptions
+            {
+                [UrlSchemes("https"), MaxLength(200), Description("Where to report each run")]
+                public string? Callback { get; set; }
+
+                [Url, StringLength(30), Description("Database connection string")]
+                public System.Uri? DbUrl { get; set; }
+
+                [ItemLength(2, 4), Description("Branch codes, two to four characters each")]
+                public string[] Branches { get; set; } = [];
+            }
+            """);
+
+        Assert.Empty(diagnostics);
     }
 
     [Fact]

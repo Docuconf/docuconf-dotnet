@@ -206,10 +206,18 @@ internal static partial class ContractJson
             MaxItems = v["maxItems"]?.GetValue<int>(),
             ItemMin = v["itemMin"]?.GetValue<long>(),
             ItemMax = v["itemMax"]?.GetValue<long>(),
+            ItemMinLength = v["itemMinLength"]?.GetValue<int>(),
+            ItemMaxLength = v["itemMaxLength"]?.GetValue<int>(),
             Encoding = encoding,
             Separator = type == VarType.List && encoding == "csv" ? separator ?? "," : null,
             Schema = v["schema"]?.DeepClone(),
         };
+
+        if ((spec.ItemMinLength is not null || spec.ItemMaxLength is not null) && spec.Items != "string")
+        {
+            Error("itemMinLength and itemMaxLength apply only to lists of strings.");
+            return null;
+        }
 
         if (spec.Pattern is not null)
         {

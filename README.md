@@ -205,7 +205,13 @@ local directory when `DOCUCONF_FILE_ROOT` (or the configuration value `Docuconf:
 (`'0' is below the minimum 1`); a constraint with your own `ErrorMessage` keeps it. A constraint that does not fit the
 property's type, such as `[UrlSchemes]` on an `int` or `[Range]` on a `string`, is a declaration error rather than a
 rule the contract silently drops. Integer types narrower than 64 bits export their own range, so the platform never
-sends a value the property cannot hold. Values are read as the platform writes them (SPEC §5): integers in base 10,
+sends a value the property cannot hold. Lengths count characters (Unicode scalar values), not UTF-16 units, so `日本`
+is 2 and an emoji is 1: `[MaxLength]` or `[StringLength]` on a URL exports `maxLength`, `[JsonVar(MaxLength = 256)]`
+bounds a `json` value as received (or, from an appsettings file or overlay, as compact JSON), and `[ItemLength(2, 4)]`
+bounds every item of a string list (`itemMinLength`/`itemMaxLength`), for apps that store values in fixed-width
+fields. A value above its limit fails startup with `out_of_range`; a secret's error gives its length, never its value.
+`[ItemLength]` on an integer list, a minimum above the maximum, or a minimum length on a URL is a declaration error.
+Values are read as the platform writes them (SPEC §5): integers in base 10,
 numbers with a `.` whatever the culture, `true`/`false`, URLs with a `scheme://`, and enum names exactly as declared.
 A list given as one value (`ORDERS__ALLOWEDORIGINS=a,b`) is `invalid_type` with the indexed form to use instead, and
 list items must be numbered from 0 with no gap.
@@ -217,7 +223,10 @@ list items must be numbered from 0 with no gap.
 | `[UrlSchemes("https")]` on a `string` or `Uri` | A URL with an allowed scheme. |
 | `[EnvName("LOG_LEVEL")]` | Overrides the derived variable name. The app reads that variable, and the configuration path (for appsettings) when it is not set. |
 | `[ItemRange(0, 1023)]` on an `int[]`, `List<long>`, ... | Bounds every item of an integer list (`itemMin`/`itemMax`). |
+| `[ItemLength(2, 4)]` on a `string[]`, `List<string>`, ... | Bounds the length of every item of a string list, in characters (`itemMinLength`/`itemMaxLength`). |
+| `[MaxLength(200)]` with `[UrlSchemes]` or `[Url]` | Bounds a URL's length in characters (`maxLength`). |
 | `[JsonVar]` on a class | One variable holding JSON, checked against the class (see below). |
+| `[JsonVar(MaxLength = 256)]` | Bounds a `json` value's length in characters, measured as received (`maxLength`). |
 | `[External("KeyVault")]` | Supplied by a provider the platform does not control; left out of the contract. Dictionaries and lists of objects need it (or `[JsonVar]`). |
 | `[TlsFile(dir)]` on a `TlsKeyPair` | `tls.crt`, `tls.key`, optional `ca.crt`. Checked for key match, expiry (`MinRemaining`), `DnsNames`, `KeyAlgorithms`, and the chain to `ca.crt` (`RequireCA`). `.Current` reloads rotated certificates. |
 | `[ConfigFile(path)]` on any class | A JSON file deserialized into that class. The contract carries a JSON Schema generated from it. |

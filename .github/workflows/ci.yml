@@ -4,6 +4,15 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
+    inputs:
+      docuconf_go_ref:
+        description: docuconf-go ref to test against (empty = .github/docuconf-go.ref)
+        required: false
+        default: ""
+  # Nightly against docuconf-go main, to catch spec changes before a bump PR.
+  schedule:
+    - cron: "23 5 * * *"
 
 permissions:
   contents: read
@@ -15,13 +24,25 @@ jobs:
       # The shared conformance suite (SPEC §12), run by tests/Docuconf.Tests/ConformanceTests.cs.
       DOCUCONF_CONFORMANCE: ${{ github.workspace }}/docuconf-go/conformance/cases.json
       DOCUCONF_REQUIRE_CONFORMANCE: "1"
+      # The export tests vet contracts against the pinned docuconf-go meta-schema, not the copy in spec/.
+      DOCUCONF_SPEC_CUE: ${{ github.workspace }}/docuconf-go/spec/cue
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/checkout@v4
+      - name: Pick the docuconf-go ref
+        id: dcref
+        env:
+          EVENT: ${{ github.event_name }}
+          INPUT_REF: ${{ inputs.docuconf_go_ref }}
+        run: |
+          if [ "$EVENT" = schedule ]; then echo "ref=main" >> "$GITHUB_OUTPUT"
+          elif [ -n "$INPUT_REF" ]; then echo "ref=$INPUT_REF" >> "$GITHUB_OUTPUT"
+          else echo "ref=$(tr -d '[:space:]' < .github/docuconf-go.ref)" >> "$GITHUB_OUTPUT"; fi
+      - name: Check out docuconf-go
+        uses: actions/checkout@v4
         with:
           repository: docuconf/docuconf-go
-          ref: main
           path: docuconf-go
+          ref: ${{ steps.dcref.outputs.ref }}
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: |
@@ -32,6 +53,12 @@ jobs:
           go-version: "1.24"
       # The export tests check contracts against the CUE meta-schema.
       - run: go install cuelang.org/go/cmd/cue@v0.17.1
+      # The docuconf-go-facing subset (conformance suite, cue vet of exported
+      # contracts); docuconf-go's downstream workflow runs the same script.
+      - name: Run scripts/conformance.sh
+        run: scripts/conformance.sh
+        env:
+          DOCUCONF_GO_DIR: ${{ github.workspace }}/docuconf-go
       - run: dotnet build -c Release
       # Unit tests on net10.0 and net8.0, the conformance suite, the analyzer, and the README snippets.
       - run: dotnet test -c Release --no-build
@@ -42,11 +69,21 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/checkout@v4
+      - name: Pick the docuconf-go ref
+        id: dcref
+        env:
+          EVENT: ${{ github.event_name }}
+          INPUT_REF: ${{ inputs.docuconf_go_ref }}
+        run: |
+          if [ "$EVENT" = schedule ]; then echo "ref=main" >> "$GITHUB_OUTPUT"
+          elif [ -n "$INPUT_REF" ]; then echo "ref=$INPUT_REF" >> "$GITHUB_OUTPUT"
+          else echo "ref=$(tr -d '[:space:]' < .github/docuconf-go.ref)" >> "$GITHUB_OUTPUT"; fi
+      - name: Check out docuconf-go
+        uses: actions/checkout@v4
         with:
           repository: docuconf/docuconf-go
-          ref: main
           path: docuconf-go
+          ref: ${{ steps.dcref.outputs.ref }}
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: |

@@ -100,7 +100,7 @@ internal sealed class DocuconfValidateOptions<T>(IConfiguration configuration) :
     /// </summary>
     private static bool InContract(ValidationAttribute attr) =>
         attr is RangeAttribute or MinLengthAttribute or MaxLengthAttribute or LengthAttribute or StringLengthAttribute
-            or AllowedValuesAttribute or RegularExpressionAttribute or ItemRangeAttribute;
+            or AllowedValuesAttribute or RegularExpressionAttribute or ItemRangeAttribute or ItemLengthAttribute;
 
     private static bool HasCustomMessage(System.Reflection.PropertyInfo property) =>
         property.GetCustomAttributes(typeof(ValidationAttribute), true).Cast<ValidationAttribute>()
@@ -131,6 +131,11 @@ internal sealed class DocuconfValidateOptions<T>(IConfiguration configuration) :
                 continue; // Presence is checked against configuration above, contract constraints by CheckContract.
             }
 
+            if (spec.Type == VarType.Url && attr is StringLengthAttribute or MaxLengthAttribute or LengthAttribute)
+            {
+                continue; // maxLength, checked while binding in characters rather than UTF-16 units.
+            }
+
             if (attr.GetValidationResult(value, context) is not { } result || result == ValidationResult.Success)
             {
                 continue;
@@ -146,7 +151,7 @@ internal sealed class DocuconfValidateOptions<T>(IConfiguration configuration) :
 
     private static string CodeFor(ValidationAttribute attr, object? value) => attr switch
     {
-        RangeAttribute or ItemRangeAttribute => Codes.OutOfRange,
+        RangeAttribute or ItemRangeAttribute or ItemLengthAttribute => Codes.OutOfRange,
         RegularExpressionAttribute => Codes.PatternMismatch,
         AllowedValuesAttribute or DeniedValuesAttribute => Codes.NotInEnum,
         UrlAttribute => Codes.InvalidScheme,

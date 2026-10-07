@@ -79,9 +79,11 @@ public sealed class VarSpec
     public object? Min { get; init; }
     /// <summary>Numeric upper bound (int, float) or duration upper bound in Go syntax.</summary>
     public object? Max { get; init; }
-    /// <summary>Least string length.</summary>
+    /// <summary>Least string length, in characters (Unicode scalar values).</summary>
     public int? MinLength { get; init; }
-    /// <summary>Greatest string length.</summary>
+    /// <summary>
+    /// Greatest length, in characters (Unicode scalar values), of a string or url, or of a json value's wire form.
+    /// </summary>
     public int? MaxLength { get; init; }
     /// <summary>RE2 pattern.</summary>
     public string? Pattern { get; init; }
@@ -99,6 +101,10 @@ public sealed class VarSpec
     public long? ItemMin { get; init; }
     /// <summary>Greatest value of each item of an <c>int</c> list.</summary>
     public long? ItemMax { get; init; }
+    /// <summary>Least length, in characters, of each item of a <c>string</c> list.</summary>
+    public int? ItemMinLength { get; init; }
+    /// <summary>Greatest length, in characters, of each item of a <c>string</c> list.</summary>
+    public int? ItemMaxLength { get; init; }
     /// <summary>
     /// The wire encoding of a list or duration (SPEC §5). Null for declared options, which .NET's configuration
     /// binder reads as <c>indexed</c> lists and <c>timespan</c> durations.

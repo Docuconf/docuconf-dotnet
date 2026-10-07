@@ -262,22 +262,27 @@ public sealed class DeclarationAnalyzer : DiagnosticAnalyzer
                 Misfit(regex, "RegularExpression", "string properties");
             }
 
-            if (Find(prop, "System.ComponentModel.DataAnnotations.StringLengthAttribute") is { } stringLength && type != VarType.String)
+            if (Find(prop, "System.ComponentModel.DataAnnotations.StringLengthAttribute") is { } stringLength && type is not (VarType.String or VarType.Url))
             {
-                Misfit(stringLength, "StringLength", "string properties");
+                Misfit(stringLength, "StringLength", "string and url properties");
             }
 
             foreach (var name in new[] { "MinLength", "MaxLength", "Length" })
             {
-                if (Find(prop, $"System.ComponentModel.DataAnnotations.{name}Attribute") is { } length && type is not (VarType.String or VarType.List))
+                if (Find(prop, $"System.ComponentModel.DataAnnotations.{name}Attribute") is { } length && type is not (VarType.String or VarType.Url or VarType.List))
                 {
-                    Misfit(length, name, "strings and lists");
+                    Misfit(length, name, "strings, urls and lists");
                 }
             }
 
             if (Find(prop, "Docuconf.ItemRangeAttribute") is { } itemRange && listKind != "int")
             {
                 Misfit(itemRange, "ItemRange", "lists of integers, such as int[] or List<long>");
+            }
+
+            if (Find(prop, "Docuconf.ItemLengthAttribute") is { } itemLength && listKind != "string")
+            {
+                Misfit(itemLength, "ItemLength", "lists of strings, such as string[] or List<string>");
             }
 
             if (type == VarType.Json && (IsScalar(clr) || clr.IsValueType))

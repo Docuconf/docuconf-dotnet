@@ -334,7 +334,43 @@ public static partial class ContractReader
             (itemMin, itemMax) = Narrow(itemRange?.Minimum, itemRange?.Maximum, WireFormat.RangeOf(ElementType(clr)!));
         }
 
-        var (minLength, maxLength) = type == VarType.Json ? (null, null) : LengthBounds(prop);
+        int? itemMinLength = null, itemMaxLength = null;
+        if (prop.GetCustomAttribute<ItemLengthAttribute>() is { } itemLength)
+        {
+            if (listKind != "string")
+            {
+                errors.Add($"{key}: [ItemLength] applies to lists of strings, such as string[] or List<string>.");
+            }
+            else if (itemLength.MinimumLength < 0 || itemLength.MaximumLength < 0)
+            {
+                errors.Add($"{key}: [ItemLength] lengths must not be negative.");
+            }
+            else if (itemLength.MinimumLength > itemLength.MaximumLength)
+            {
+                errors.Add($"{key}: [ItemLength({itemLength.MinimumLength}, {itemLength.MaximumLength})] has its minimum above its maximum.");
+            }
+            else
+            {
+                itemMinLength = itemLength.MinimumLength > 0 ? itemLength.MinimumLength : null;
+                itemMaxLength = itemLength.MaximumLength;
+            }
+        }
+
+        // A json value's maxLength comes from [JsonVar(MaxLength = n)]: DataAnnotations' length attributes do not
+        // apply to an object.
+        var (minLength, maxLength) = type == VarType.Json
+            ? (null, prop.GetCustomAttribute<JsonVarAttribute>()!.MaxLength is > 0 and var jsonMax ? jsonMax : (int?)null)
+            : LengthBounds(prop);
+        if (type == VarType.Url && minLength is not null)
+        {
+            errors.Add($"{key}: a url takes only a maximum length ([MaxLength] or [StringLength]); remove the minimum.");
+            minLength = null;
+        }
+
+        if (type == VarType.Json && prop.GetCustomAttribute<JsonVarAttribute>()!.MaxLength < 0)
+        {
+            errors.Add($"{key}: [JsonVar(MaxLength)] must not be negative.");
+        }
         string? pattern = FullMatch(prop.GetCustomAttribute<RegularExpressionAttribute>()?.Pattern);
         if (pattern is not null && NonRe2().IsMatch(pattern))
         {
@@ -357,6 +393,8 @@ public static partial class ContractReader
             MaxItems = type == VarType.List ? maxLength : null,
             ItemMin = itemMin,
             ItemMax = itemMax,
+            ItemMinLength = itemMinLength,
+            ItemMaxLength = itemMaxLength,
             Pattern = pattern,
             Schemes = schemes,
             Values = values,
@@ -445,17 +483,18 @@ public static partial class ContractReader
             Misfit("RegularExpression", "string properties");
         }
 
-        if (prop.GetCustomAttribute<StringLengthAttribute>() is not null && type != VarType.String)
+        // A url takes a maximum length (maxLength); a minimum on a url is reported where the lengths are read.
+        if (prop.GetCustomAttribute<StringLengthAttribute>() is not null && type is not (VarType.String or VarType.Url))
         {
-            Misfit("StringLength", "string properties");
+            Misfit("StringLength", "string and url properties");
         }
 
         foreach (var name in new[] { (typeof(MinLengthAttribute), "MinLength"), (typeof(MaxLengthAttribute), "MaxLength"), (typeof(LengthAttribute), "Length") }
             .Where(a => prop.GetCustomAttribute(a.Item1) is not null).Select(a => a.Item2))
         {
-            if (type is not (VarType.String or VarType.List))
+            if (type is not (VarType.String or VarType.Url or VarType.List))
             {
-                Misfit(name, "strings and lists");
+                Misfit(name, "strings, urls and lists");
             }
         }
     }
