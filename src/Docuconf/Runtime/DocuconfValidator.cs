@@ -38,7 +38,7 @@ internal sealed class DocuconfValidateOptions<T>(IConfiguration configuration, D
             }
 
             var section = configuration.GetSection(spec.ConfigKey);
-            bool present = section.Exists() && !(section.Value == "" && spec.Type != VarType.String);
+            bool present = DocuconfBinder.IsSet(section, spec);
             if (spec.Required && !present)
             {
                 violations.Add(new Violation(Codes.MissingRequired, spec.Name, $"is required ({spec.ConfigKey})"));

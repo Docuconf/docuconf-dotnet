@@ -157,4 +157,33 @@ public sealed class ItemBoundsTests
 
         Assert.Equal(["[invalid_type] BOUNDS__SHARDS: item 1 is not an integer"], failures);
     }
+
+    // SPEC §5: indexed items are numbered from 0 with no gap. The configuration binder alone would read
+    // Shards:0 and Shards:2 as a two-item list.
+    [Fact]
+    public void An_indexed_list_with_a_gap_is_invalid()
+    {
+        var failures = Failures(new() { ["Bounds:Shards:0"] = "1", ["Bounds:Shards:2"] = "3", ["Bounds:Probes:1"] = "80" });
+
+        Assert.Equal(
+            [
+                "[invalid_type] BOUNDS__PROBES: items must be numbered from BOUNDS__PROBES__0 with no gap, but BOUNDS__PROBES__0 is not set",
+                "[invalid_type] BOUNDS__SHARDS: items must be numbered from BOUNDS__SHARDS__0 with no gap, but BOUNDS__SHARDS__1 is not set",
+            ],
+            failures);
+    }
+
+    [Fact]
+    public void A_non_numeric_suffix_is_not_an_item()
+    {
+        var options = Resolve(new()
+        {
+            ["Bounds:Probes:0"] = "80",
+            ["Bounds:Probes:HOST"] = "other",
+            ["Bounds:Offsets:HOST"] = "other",
+        });
+
+        Assert.Equal([80], options.Probes);
+        Assert.Empty(options.Offsets); // no items: the list is unset and the initializer stands
+    }
 }

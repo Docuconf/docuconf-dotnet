@@ -27,6 +27,32 @@ internal static partial class WireFormat
     [GeneratedRegex(@"^[0-9]+(?:\.[0-9]+)?$")]
     private static partial Regex SecondsSyntax();
 
+    // An indexed list item's suffix: a decimal index with no leading zero (SPEC §5). NAME__HOST is not an item.
+    [GeneratedRegex("^(?:0|[1-9][0-9]*)$")]
+    private static partial Regex IndexSyntax();
+
+    /// <summary>Whether <paramref name="suffix"/> (the part after <c>NAME__</c>) is an indexed list item.</summary>
+    public static bool IsIndex(string suffix) => IndexSyntax().IsMatch(suffix);
+
+    /// <summary>
+    /// Indexed list items must be numbered from 0 with no gap (SPEC §5): a host that stops at the gap and one that
+    /// skips it would read different lists. Returns the problem for the first missing index, or null.
+    /// </summary>
+    public static Problem? CheckIndexGap(string name, IReadOnlyCollection<string> indices)
+    {
+        var set = indices.ToHashSet(StringComparer.Ordinal);
+        for (int i = 0; i < set.Count; i++)
+        {
+            var index = i.ToString(CultureInfo.InvariantCulture);
+            if (!set.Contains(index))
+            {
+                return new Problem(Runtime.Codes.InvalidType, $"items must be numbered from {name}__0 with no gap, but {name}__{index} is not set");
+            }
+        }
+
+        return null;
+    }
+
     /// <summary>Duration encodings (SPEC §5).</summary>
     public static readonly IReadOnlyList<string> DurationEncodings = ["go", "iso8601", "seconds", "timespan"];
 
