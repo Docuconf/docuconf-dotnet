@@ -33,8 +33,9 @@ jobs:
       # The export tests check contracts against the CUE meta-schema.
       - run: go install cuelang.org/go/cmd/cue@v0.17.1
       - run: dotnet build -c Release
+      # Unit tests on net10.0 and net8.0, the conformance suite, the analyzer, and the README snippets.
       - run: dotnet test -c Release --no-build
-      # Install the packed package from a local feed into a clean app and use it.
+      # Install the packed package from a local feed into clean .NET 10 and .NET 8 apps and use it.
       - run: ./scripts/smoke-consumer.sh
 
   example:
@@ -55,12 +56,9 @@ jobs:
         with:
           go-version: "1.24"
       - run: go install cuelang.org/go/cmd/cue@v0.17.1
-      - name: Build examples/orders
-        run: dotnet build examples/orders -c Release
-      - name: contract.cue is up to date
-        run: |
-          dotnet examples/orders/bin/Release/net10.0/Orders.Api.dll docuconf export "$RUNNER_TEMP/contract.cue"
-          diff -u examples/orders/contract.cue "$RUNNER_TEMP/contract.cue"
+      # The build-time export in check mode fails the build when contract.cue is out of date.
+      - name: Build examples/orders; contract.cue is up to date
+        run: dotnet build examples/orders -c Release -p:DocuconfContractCheck=true
       - name: contract.cue passes the meta-schema
         run: |
           mkdir -p "$RUNNER_TEMP/cue/orders"

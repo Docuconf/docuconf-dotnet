@@ -10,6 +10,7 @@
     <Project Path="src/Docuconf/Docuconf.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/Docuconf.Readme.Tests/Docuconf.Readme.Tests.csproj" />
     <Project Path="tests/Docuconf.Tests/Docuconf.Tests.csproj" />
   </Folder>
 </Solution>
