@@ -48,9 +48,17 @@ internal static class DocuconfBinder
             }
 
             var section = configuration.GetSection(spec.ConfigKey);
-            if (!section.Exists() || (section.Value == "" && spec.Type != VarType.String))
+            if (!IsSet(section, spec))
             {
                 // Unset (or empty, which counts as unset for non-strings): the initializer stands.
+                continue;
+            }
+
+            // The configuration binder adds every child of a list section in key order, so it would read NAME__0 and
+            // NAME__2 as a two-item list, and NAME__HOST as an item. SPEC §5 makes a gap invalid_type.
+            if (spec.Type == VarType.List && WireFormat.CheckIndexGap(spec.Name, Items(section).Select(c => c.Key).ToList()) is { } gap)
+            {
+                violations.Add(new Violation(gap.Code, spec.Name, gap.Message));
                 continue;
             }
 
@@ -137,13 +145,7 @@ internal static class DocuconfBinder
         var clr = Nullable.GetUnderlyingType(spec.ClrType!) ?? spec.ClrType!;
         if (spec.Type == VarType.List)
         {
-            if (spec.Items == "int" && CheckIntItems(section, ContractReader.ElementType(clr)!) is { } itemProblem)
-            {
-                return itemProblem;
-            }
-
-            value = section.Get(spec.ClrType!);
-            return null;
+            return ConvertList(section, spec, clr, out value);
         }
 
         var raw = section.Value!;
@@ -189,18 +191,71 @@ internal static class DocuconfBinder
         return null;
     }
 
-    /// <summary>Each item of an int list must be an integer the element type holds.</summary>
-    private static Problem? CheckIntItems(IConfigurationSection section, Type element)
+    /// <summary>
+    /// Whether a value is set: the section exists and is not empty (empty is unset for non-strings), and a list has at
+    /// least one item (SPEC §5: <c>NAME__HOST</c> alone is not a list).
+    /// </summary>
+    internal static bool IsSet(IConfigurationSection section, VarSpec spec) =>
+        section.Exists()
+        && !(section.Value == "" && spec.Type != VarType.String)
+        && !(spec.Type == VarType.List && section.Value is null && !Items(section).Any());
+
+    /// <summary>The children of a list section that are items: keys that are a decimal index with no leading zero.</summary>
+    private static IEnumerable<IConfigurationSection> Items(IConfigurationSection section) =>
+        section.GetChildren().Where(c => WireFormat.IsIndex(c.Key));
+
+    /// <summary>
+    /// Builds the list from its items in index order. Each item of an int list must be an integer the element type
+    /// holds. Collections that are not arrays or lists are left to the configuration binder.
+    /// </summary>
+    private static Problem? ConvertList(IConfigurationSection section, VarSpec spec, Type clr, out object? value)
     {
-        foreach (var child in section.GetChildren())
+        value = null;
+        var element = ContractReader.ElementType(clr)!;
+        var items = Items(section).OrderBy(c => c.Key.Length).ThenBy(c => c.Key, StringComparer.Ordinal).ToList();
+        var typed = new List<object?>(items.Count);
+        foreach (var child in items)
         {
             var raw = child.Value ?? "";
-            if ((WireFormat.ParseInt(raw, out var item) ?? WireFormat.FitsIn(item, element)) is { } problem)
+            if (spec.Items != "int")
+            {
+                typed.Add(raw);
+            }
+            else if ((WireFormat.ParseInt(raw, out var item) ?? WireFormat.FitsIn(item, element)) is { } problem)
             {
                 return problem with { Message = $"item {child.Key} {problem.Message}" };
             }
+            else
+            {
+                typed.Add(System.Convert.ChangeType(element == typeof(ulong) ? (ulong)item : item, element, CultureInfo.InvariantCulture));
+            }
         }
 
+        if (clr.IsArray)
+        {
+            var array = Array.CreateInstance(element, typed.Count);
+            for (int i = 0; i < typed.Count; i++)
+            {
+                array.SetValue(typed[i], i);
+            }
+
+            value = array;
+            return null;
+        }
+
+        var listType = clr.IsInterface ? typeof(List<>).MakeGenericType(element) : clr;
+        if (clr.IsAssignableFrom(listType) && Activator.CreateInstance(listType) is System.Collections.IList list)
+        {
+            foreach (var item in typed)
+            {
+                list.Add(item);
+            }
+
+            value = list;
+            return null;
+        }
+
+        value = section.Get(spec.ClrType!);
         return null;
     }
 

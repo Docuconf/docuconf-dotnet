@@ -8,6 +8,8 @@ TLS key pairs, CA bundles, keystores, JSON config files and licence files.
 Part of [docuconf](https://github.com/docuconf). See the
 [specification](https://github.com/docuconf/docuconf-go/blob/main/spec/SPEC.md).
 
+**Example:** [`examples/orders`](examples/orders), a minimal API with its exported contract.
+
 > **Status:** `0.1.0-alpha`. The contract format is a draft (`v1alpha1`) and the API may change.
 
 ## Declare
@@ -92,6 +94,9 @@ The contract includes the `appsettings.json` values that ship with the app as de
 `appsettings.Production.json` counts as supplied. A `[Secret]` value in any appsettings file is an export error.
 Variable names follow the configuration path: `Billing:Port` is `BILLING__PORT`. The contract records that .NET
 reads `TimeSpan` as `hh:mm:ss` and lists as `NAME__0`, `NAME__1`, so the platform renders values that way.
+List items must be numbered from 0 with no gap: `NAME__0` and `NAME__2` without `NAME__1` fail startup with
+`invalid_type` (the configuration binder alone would read them as two items), and a key such as `NAME__HOST` is not
+an item.
 
 ## Structured values
 

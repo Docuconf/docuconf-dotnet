@@ -148,22 +148,28 @@ public sealed class ContractValues(IReadOnlyDictionary<string, object?> values) 
 /// <summary>Reads one variable of a contract from an environment.</summary>
 internal static partial class ContractFirstLoader
 {
-    [GeneratedRegex(@"^(?<name>[A-Z][A-Z0-9_]*)__(?<index>[0-9]+)$")]
+    [GeneratedRegex(@"^(?<name>[A-Z][A-Z0-9_]*)__(?<index>0|[1-9][0-9]*)$")]
     private static partial Regex IndexedKey();
 
     public static object? Load(VarSpec spec, object? profileDefault, IReadOnlyDictionary<string, string> env, List<Violation> violations)
     {
-        // Indexed lists arrive as NAME__0, NAME__1, ... in index order, as Microsoft.Extensions.Configuration binds them.
+        // Indexed lists arrive as NAME__0, NAME__1, ... and must be numbered from 0 with no gap (SPEC §5).
         List<string>? indexed = null;
         string? raw = null;
         if (spec.Type == VarType.List && spec.Encoding == "indexed")
         {
-            indexed = env
+            var items = env
                 .Select(e => (Match: IndexedKey().Match(e.Key), e.Value))
                 .Where(e => e.Match.Success && e.Match.Groups["name"].Value == spec.Name)
-                .OrderBy(e => BigInteger(e.Match.Groups["index"].Value))
-                .Select(e => e.Value)
+                .Select(e => (Index: e.Match.Groups["index"].Value, e.Value))
                 .ToList();
+            if (items.Count > 0 && WireFormat.CheckIndexGap(spec.Name, items.Select(e => e.Index).ToList()) is { } gap)
+            {
+                violations.Add(new Violation(gap.Code, spec.Name, gap.Message));
+                return null;
+            }
+
+            indexed = items.OrderBy(e => BigInteger(e.Index)).Select(e => e.Value).ToList();
         }
         else
         {
