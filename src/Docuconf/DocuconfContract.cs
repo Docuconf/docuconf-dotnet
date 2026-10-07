@@ -204,7 +204,8 @@ internal static partial class ContractFirstLoader
         var problem = indexed is not null ? ParseList(spec, indexed, out var typed) : Parse(spec, raw!, out typed);
         if (problem is null && typed is not null)
         {
-            problem = Constraints.Check(spec, typed);
+            // A json value's maxLength measures it as received (SPEC §4.3).
+            problem = Constraints.Check(spec, typed, spec.Type == VarType.Json ? raw : null);
         }
 
         if (problem is not null)

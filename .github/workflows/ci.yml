@@ -24,6 +24,8 @@ jobs:
       # The shared conformance suite (SPEC §12), run by tests/Docuconf.Tests/ConformanceTests.cs.
       DOCUCONF_CONFORMANCE: ${{ github.workspace }}/docuconf-go/conformance/cases.json
       DOCUCONF_REQUIRE_CONFORMANCE: "1"
+      # The export tests vet contracts against the pinned docuconf-go meta-schema, not the copy in spec/.
+      DOCUCONF_SPEC_CUE: ${{ github.workspace }}/docuconf-go/spec/cue
     steps:
       - uses: actions/checkout@v4
       - name: Pick the docuconf-go ref

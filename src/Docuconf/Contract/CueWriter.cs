@@ -144,6 +144,8 @@ public static partial class CueWriter
         if (v.MaxItems is { } maxItems) w.Field("maxItems", Num(maxItems));
         if (v.ItemMin is { } itemMin) w.Field("itemMin", Num(itemMin));
         if (v.ItemMax is { } itemMax) w.Field("itemMax", Num(itemMax));
+        if (v.ItemMinLength is { } itemMinLength) w.Field("itemMinLength", Num(itemMinLength));
+        if (v.ItemMaxLength is { } itemMaxLength) w.Field("itemMaxLength", Num(itemMaxLength));
         if (v.Schema is { } schema) w.Field("schema", Schema(schema, w.Depth));
         if (v.Default is { } value) w.Field("default", Value(value, v.Type == VarType.Float));
         w.Close();
