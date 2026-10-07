@@ -36,11 +36,19 @@ public sealed class BillingOptions
 
 Everything else is ordinary .NET: `[Required]`, `[Range]`, `[MinLength]`, `[RegularExpression]`, `[AllowedValues]`
 and `[Url]` become contract constraints. `Description` is required, because every input in a contract is documented.
+Integer types narrower than 64 bits export their own range, so the platform never sends a value the property cannot
+hold: an `int` gets `min`/`max` of ±2³¹ (clamped further by `[Range]`), a `uint` gets `min: 0`, and the items of an
+`int[]` get `itemMin`/`itemMax` the same way. DataAnnotations has nothing for the items of a collection, so
+`[ItemRange]` adds it; an item outside its bounds, or one its type cannot hold, fails startup with `out_of_range`.
+Values are read as the platform writes them (SPEC §5), whichever configuration source they come from: integers in
+base 10, numbers with a `.` whatever the culture, `true`/`false`, URLs with a `scheme://`, and enum names exactly as
+declared (`Warn`, not `WARN`). Nothing is trimmed.
 
 | Attribute | Input |
 |---|---|
 | `[Secret]` | Must come from a Kubernetes Secret; never printed. |
 | `[UrlSchemes("https")]` | A URL with an allowed scheme. |
+| `[ItemRange(0, 1023)]` on an `int[]`, `List<long>`, ... | Bounds every item of an integer list (`itemMin`/`itemMax`). |
 | `[TlsFile(dir)]` on a `TlsKeyPair` | `tls.crt`, `tls.key`, optional `ca.crt`. Checked for key match, expiry (`MinRemaining`), `DnsNames`, `KeyAlgorithms`, and the chain to `ca.crt` (`RequireCA`). `.Current` reloads rotated certificates. |
 | `[ConfigFile(path)]` on any class | A JSON file deserialized into that class. The contract carries a JSON Schema generated from it, so the platform checks the file against the same type. |
 | `[CaBundleFile(path)]` on a `CaBundle` | PEM CA certificates. |
@@ -133,6 +141,40 @@ injection. On the platform side they are declared as `injected` values (SPEC §4
 holds a reference when the app starts (it begins with `vault:`, `op://` or `ref+`), the injector did not run, and
 startup fails with `invalid_type` naming the variable and the reference scheme, never the value.
 
+## Contract-first
+
+When the contract comes first (written by hand in CUE, or another app's), validate an environment against it
+directly, with no options class. Export it as JSON with `cue export contract.cue --out json > contract.json`, then:
+
+```csharp
+var config = DocuconfContract.FromFile("contract.json").Load();   // the process environment
+long port = config.Get<long>("PORT");                              // throws ContractValidationException otherwise
+```
+
+`Load(env)` takes an environment map instead, and `Validate(env)` returns the violations instead of throwing. Values
+are typed: `long` for `int`, `double`, `bool`, `TimeSpan` for `duration`, `Uri` for `url`, `IReadOnlyList<string>` or
+`IReadOnlyList<long>` for lists, a `JsonNode` for `json`, `string` otherwise; an absent optional value is null. Every
+wire encoding is read, as the contract's `encoding` says: lists as `csv` (with its `separator`), `json` or `indexed`
+(`NAME__0`, `NAME__1`), durations as `go`, `iso8601`, `seconds` or `timespan`. Values go through the same parsers and
+constraint checks as options classes. The mode covers variables, with the defaults of the profile the contract's
+selector picks; file inputs and overlays are not read, and `json` values are parsed but not checked against their JSON
+Schema.
+
+## Conformance
+
+The tests run docuconf's shared conformance suite (SPEC §12) through the contract-first mode. They read
+`conformance/cases.json` from a docuconf-go checkout next to this repository, or from `DOCUCONF_CONFORMANCE`:
+
+```sh
+DOCUCONF_CONFORMANCE=../docuconf-go/conformance/cases.json DOCUCONF_REQUIRE_CONFORMANCE=1 \
+  dotnet test -- --filter-class Docuconf.Tests.ConformanceTests --output detailed
+```
+
+Without the file the test is skipped, unless `DOCUCONF_REQUIRE_CONFORMANCE=1` (as in CI), which fails it. Failures are
+reported by case id. Cases tagged `json-schema` are skipped: .NET has no JSON Schema validator, so the contract-first
+mode does not check `json` values against their schema (options classes check them with their type's DataAnnotations
+instead). Every other tag, including `int64`, is supported.
+
 ## Develop
 
 ```sh
@@ -145,4 +187,4 @@ startup validation. Releases are published from CI with NuGet trusted publishing
 `samples/Billing.Api` uses every input kind. The tests check exported contracts against a copy of the CUE
 meta-schema in `tests/Docuconf.Tests/spec`; refresh it with `scripts/sync-spec.sh`.
 
-Licence: pending (Apache-2.0 proposed).
+Licence: [MIT](https://github.com/docuconf/docuconf-dotnet/blob/main/LICENSE).

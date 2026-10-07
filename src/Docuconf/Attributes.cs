@@ -1,3 +1,5 @@
+using System.ComponentModel.DataAnnotations;
+
 namespace Docuconf;
 
 /// <summary>
@@ -32,6 +34,55 @@ public sealed class UrlSchemesAttribute(params string[] schemes) : Attribute
 {
     /// <summary>The allowed schemes, such as <c>https</c> or <c>postgres</c>.</summary>
     public IReadOnlyList<string> Schemes { get; } = schemes;
+}
+
+/// <summary>
+/// Bounds every item of an integer list, such as <c>int[]</c> or <c>List&lt;long&gt;</c>; exported as the contract's
+/// <c>itemMin</c> and <c>itemMax</c> (SPEC §4.3). DataAnnotations has no attribute for the items of a collection.
+/// An item outside the bounds is <c>out_of_range</c> at startup. The item type's own range (32 bits for <c>int</c>)
+/// is exported without this attribute; use it for narrower bounds.
+/// </summary>
+/// <example><code>[ItemRange(0, 1023)] public int[] Shards { get; set; } = [];</code></example>
+[AttributeUsage(AttributeTargets.Property)]
+public sealed class ItemRangeAttribute(long minimum, long maximum) : ValidationAttribute
+{
+    /// <summary>The least value of an item.</summary>
+    public long Minimum { get; } = minimum;
+
+    /// <summary>The greatest value of an item.</summary>
+    public long Maximum { get; } = maximum;
+
+    /// <inheritdoc />
+    protected override ValidationResult? IsValid(object? value, ValidationContext validationContext)
+    {
+        if (value is not System.Collections.IEnumerable items || value is string)
+        {
+            return ValidationResult.Success;
+        }
+
+        int i = 0;
+        foreach (var item in items)
+        {
+            if (item is not null && !InRange(item))
+            {
+                var name = validationContext.DisplayName;
+                return new ValidationResult(
+                    $"Item {i} of {name} must be between {Minimum} and {Maximum}.",
+                    validationContext.MemberName is { } member ? [member] : null);
+            }
+
+            i++;
+        }
+
+        return ValidationResult.Success;
+    }
+
+    private bool InRange(object item) => item switch
+    {
+        ulong u => u <= long.MaxValue && (long)u >= Minimum && (long)u <= Maximum,
+        IConvertible c => c.ToInt64(System.Globalization.CultureInfo.InvariantCulture) is var l && l >= Minimum && l <= Maximum,
+        _ => true,
+    };
 }
 
 /// <summary>Overrides the environment variable name derived from the configuration path.</summary>

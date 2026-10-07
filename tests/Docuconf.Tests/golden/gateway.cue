@@ -82,6 +82,15 @@ contract.#Contract & {
 				]
 			}
 		}
+		GATEWAY__SHARDS: {
+			type: "list"
+			description: "Shard ids this instance owns"
+			configKey: "Gateway:Shards"
+			items: "int"
+			encoding: "indexed"
+			itemMin: 0
+			itemMax: 1023
+		}
 		GATEWAY__TIMEOUT: {
 			type: "duration"
 			description: "Upstream request timeout"

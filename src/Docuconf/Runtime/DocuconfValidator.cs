@@ -91,7 +91,7 @@ internal sealed class DocuconfValidateOptions<T>(IConfiguration configuration, D
 
     private static string CodeFor(ValidationAttribute attr, object? value) => attr switch
     {
-        RangeAttribute => Codes.OutOfRange,
+        RangeAttribute or ItemRangeAttribute => Codes.OutOfRange,
         RegularExpressionAttribute => Codes.PatternMismatch,
         AllowedValuesAttribute or DeniedValuesAttribute => Codes.NotInEnum,
         UrlAttribute => Codes.InvalidScheme,

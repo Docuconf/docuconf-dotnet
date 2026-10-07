@@ -95,6 +95,17 @@ public sealed class VarSpec
     public int? MinItems { get; init; }
     /// <summary>Greatest list length.</summary>
     public int? MaxItems { get; init; }
+    /// <summary>Least value of each item of an <c>int</c> list.</summary>
+    public long? ItemMin { get; init; }
+    /// <summary>Greatest value of each item of an <c>int</c> list.</summary>
+    public long? ItemMax { get; init; }
+    /// <summary>
+    /// The wire encoding of a list or duration (SPEC §5). Null for declared options, which .NET's configuration
+    /// binder reads as <c>indexed</c> lists and <c>timespan</c> durations.
+    /// </summary>
+    public string? Encoding { get; init; }
+    /// <summary>The separator of a <c>csv</c> list. Null means <c>,</c>.</summary>
+    public string? Separator { get; init; }
     /// <summary>A json variable's JSON Schema, generated from its type.</summary>
     public JsonNode? Schema { get; init; }
 
