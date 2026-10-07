@@ -56,8 +56,9 @@ public sealed class BillingOptions
     [Description("Licence key for the tax engine")]
     public string LicenseKey { get; set; } = "";
 
-    // A dictionary cannot be carried by environment variables, so it stays out of the contract
-    // (export prints a warning) and still binds from appsettings.
+    // A dictionary has no contract type. [External] keeps it out of the contract on purpose; it still binds from
+    // appsettings. Without it, export fails and asks for [External] or [JsonVar].
+    [External("appsettings")]
     public Dictionary<string, string> ExtraHeaders { get; set; } = [];
 }
 

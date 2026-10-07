@@ -11,25 +11,43 @@ namespace Docuconf;
 /// </summary>
 public static class DocuconfExport
 {
-    private const string Usage = "usage: <app> docuconf export <output.cue> [--content-root <dir>] [--app-version <version>] [--profile-selector <ENV_VAR>]";
+    private const string Usage =
+        "usage: <app> docuconf export <output.cue|output.json|-> [--format cue|json] [--check] [--content-root <dir>] [--app-version <version>] [--profile-selector <ENV_VAR>]";
 
     /// <summary>
-    /// When <paramref name="args"/> start with <c>docuconf export</c>, writes the contract and returns true; the caller
+    /// When <paramref name="args"/> start with <c>docuconf</c>, runs the docuconf command and returns true; the caller
     /// should then return without starting the app. Otherwise returns false.
     /// </summary>
+    /// <remarks>
+    /// <c>docuconf export &lt;file&gt;</c> writes the contract: CUE, or JSON when the file ends in <c>.json</c> or
+    /// <c>--format json</c> is given. <c>-</c> writes it to stdout. With <c>--check</c> nothing is written: the command
+    /// exits with status 1 when the file differs from a fresh export, for CI. Any other <c>docuconf</c> command is a
+    /// usage error (exit status 2), so a typo never starts the app instead.
+    /// </remarks>
     public static bool RunIfRequested(string[] args, Assembly? assembly = null)
     {
-        if (args.Length < 2 || args[0] != "docuconf" || args[1] != "export")
+        if (args.Length < 1 || args[0] != "docuconf")
         {
             return false;
         }
 
-        assembly ??= Assembly.GetEntryAssembly() ?? throw new InvalidOperationException("No entry assembly.");
-        if (args.Length < 3 || args[2].StartsWith("--", StringComparison.Ordinal))
+        Environment.ExitCode = Run(args, assembly ?? Assembly.GetEntryAssembly() ?? throw new InvalidOperationException("No entry assembly."), Console.Out, Console.Error);
+        return true;
+    }
+
+    /// <summary>Runs a <c>docuconf</c> command and returns the exit status.</summary>
+    internal static int Run(string[] args, Assembly assembly, TextWriter stdout, TextWriter stderr)
+    {
+
+        if (args.Length < 3 || args[1] != "export" || args[2].StartsWith("--", StringComparison.Ordinal))
         {
-            Console.Error.WriteLine(Usage);
-            Environment.ExitCode = 2;
-            return true;
+            if (args.Length >= 2 && args[1] != "export")
+            {
+                stderr.WriteLine($"docuconf: unknown command '{args[1]}'.");
+            }
+
+            stderr.WriteLine(Usage);
+            return 2;
         }
 
         string? Option(string name)
@@ -38,28 +56,61 @@ public static class DocuconfExport
             return i >= 0 && i + 1 < args.Length ? args[i + 1] : null;
         }
 
+        var output = args[2];
+        var format = Option("--format") ?? (output.EndsWith(".json", StringComparison.OrdinalIgnoreCase) ? "json" : "cue");
+        if (format is not ("cue" or "json"))
+        {
+            stderr.WriteLine($"docuconf: --format must be cue or json, not '{format}'.");
+            stderr.WriteLine(Usage);
+            return 2;
+        }
+
+        bool check = args.Contains("--check");
         try
         {
-            var cue = ToCue(assembly, new ContractReadSettings
+            var model = ContractReader.Read(assembly, new ContractReadSettings
             {
                 ContentRoot = Option("--content-root") ?? AppContext.BaseDirectory,
                 ProfileSelector = Option("--profile-selector"),
-            }, Option("--app-version"), out var warnings);
-            File.WriteAllText(args[2], cue);
-            foreach (var warning in warnings)
+            });
+            var text = format == "json"
+                ? CueWriter.WriteJson(model, GeneratorInfo, Option("--app-version"))
+                : CueWriter.Write(model, GeneratorInfo, Option("--app-version"));
+            foreach (var warning in model.Warnings)
             {
-                Console.Error.WriteLine("warning: " + warning);
+                stderr.WriteLine("warning: " + warning);
             }
 
-            Console.WriteLine($"Wrote {args[2]}");
+            if (check)
+            {
+                var current = File.Exists(output) ? File.ReadAllText(output).Replace("\r\n", "\n", StringComparison.Ordinal) : null;
+                if (current != text)
+                {
+                    stderr.WriteLine(current is null
+                        ? $"docuconf: {output} does not exist; run docuconf export {output} to write it."
+                        : $"docuconf: {output} is out of date; run docuconf export {output} again and commit it.");
+                    return 1;
+                }
+
+                stdout.WriteLine($"{output} is up to date");
+            }
+            else if (output == "-")
+            {
+                stdout.Write(text);
+            }
+            else
+            {
+                File.WriteAllText(output, text);
+                stdout.WriteLine($"Wrote {output}");
+            }
         }
         catch (ContractException ex)
         {
-            Console.Error.WriteLine(ex.Message);
-            Environment.ExitCode = 1;
+            stderr.WriteLine(ex.Message);
+            return 1;
         }
 
-        return true;
+        return 0;
     }
 
     /// <summary>Reads every <see cref="ConfigContractAttribute"/> class in <paramref name="assembly"/> and writes the contract.</summary>

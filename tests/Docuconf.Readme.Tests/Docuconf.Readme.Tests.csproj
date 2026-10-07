@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    The README's C# snippets compile here, with the example's options class, and its "Test your config" tests run.
+    A project of its own because it references ASP.NET Core (for WebApplication), which would change what the main
+    tests' declarations export.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.10.1" />
+    <PackageReference Include="xunit.v3" Version="4.0.1" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="4.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+    <Compile Include="..\..\examples\orders\OrdersOptions.cs" Link="OrdersOptions.cs" />
+    <ProjectReference Include="..\..\src\Docuconf\Docuconf.csproj" />
+  </ItemGroup>
+
+</Project>

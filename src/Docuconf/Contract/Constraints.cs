@@ -18,7 +18,11 @@ internal static class Constraints
     /// url and enum, a <c>List&lt;object&gt;</c> of strings or longs for list, and a <see cref="JsonNode"/> for json.
     /// Messages never contain the value.
     /// </summary>
-    public static Problem? Check(VarSpec spec, object value)
+    /// <param name="spec">The variable.</param>
+    /// <param name="value">The typed value.</param>
+    /// <param name="wire">For a json value, the string the app received, which <c>maxLength</c> measures (SPEC §4.3).
+    /// Null measures the compact JSON of <paramref name="value"/>, as the platform renders it.</param>
+    public static Problem? Check(VarSpec spec, object value, string? wire = null)
     {
         switch (spec.Type)
         {
@@ -39,7 +43,7 @@ internal static class Constraints
             case VarType.Enum when value is string e:
                 return spec.Values!.Contains(e, StringComparer.Ordinal) ? null : new Problem(Codes.NotInEnum, $"is not one of {string.Join(", ", spec.Values!)}");
             case VarType.Url when value is string u:
-                return WireFormat.ParseUrl(u, out var uri) ?? WireFormat.CheckScheme(uri!, spec.Schemes);
+                return WireFormat.ParseUrl(u, out var uri) ?? WireFormat.CheckScheme(uri!, spec.Schemes) ?? MaxLength(spec, u);
             case VarType.String when value is string str:
                 // Lengths count characters (Unicode scalar values), as CUE's strings.MinRunes does, not UTF-16 units.
                 int length = str.EnumerateRunes().Count();
@@ -50,6 +54,7 @@ internal static class Constraints
             case VarType.List when value is List<object> items:
                 for (int i = 0; i < items.Count; i++)
                 {
+                    if (items[i] is string s && ItemLength(spec, s) is { } tooLong) return tooLong with { Message = $"item {i} {tooLong.Message}" };
                     if (items[i] is not long item) continue;
                     if (spec.ItemMin is long itemMin && item < itemMin) return OutOfRange($"item {i} is below the minimum {itemMin}");
                     if (spec.ItemMax is long itemMax && item > itemMax) return OutOfRange($"item {i} is above the maximum {itemMax}");
@@ -61,6 +66,7 @@ internal static class Constraints
             case VarType.Bool when value is bool:
                 return null;
             case VarType.Json when value is JsonNode node:
+                if (spec.MaxLength is not null && MaxLength(spec, wire ?? CompactJson.Write(node), "of JSON") is { } tooLongJson) return tooLongJson;
                 // A contract read from JSON has no .NET type to bind; its schema is the platform's to check.
                 return spec.ClrType is null ? null : JsonVar.Check(spec, node) is { } problem ? new Problem(Codes.SchemaMismatch, problem) : null;
             default:
@@ -69,6 +75,31 @@ internal static class Constraints
     }
 
     private static Problem OutOfRange(string message) => new(Codes.OutOfRange, message);
+
+    /// <summary>Length in characters: Unicode scalar values, as CUE's <c>strings.MaxRunes</c> counts, not UTF-16 units.</summary>
+    public static int Length(string s) => s.EnumerateRunes().Count();
+
+    /// <summary>
+    /// A url or json value above <c>maxLength</c>. The message gives the length, never the value, so it is safe for
+    /// secrets.
+    /// </summary>
+    public static Problem? MaxLength(VarSpec spec, string wire, string what = "")
+    {
+        if (spec.MaxLength is not int max) return null;
+        int n = Length(wire);
+        var of = what.Length > 0 ? " " + what : "";
+        return n > max ? OutOfRange($"is {n} characters{of}, above maxLength {max}") : null;
+    }
+
+    /// <summary>A string list item outside <c>itemMinLength</c>/<c>itemMaxLength</c>; the message never quotes it.</summary>
+    public static Problem? ItemLength(VarSpec spec, string item)
+    {
+        if (spec.ItemMinLength is null && spec.ItemMaxLength is null) return null;
+        int n = Length(item);
+        if (spec.ItemMinLength is int min && n < min) return OutOfRange($"is {n} characters, below itemMinLength {min}");
+        if (spec.ItemMaxLength is int max && n > max) return OutOfRange($"is {n} characters, above itemMaxLength {max}");
+        return null;
+    }
 
     private static double? ToDouble(object? bound) => bound switch
     {

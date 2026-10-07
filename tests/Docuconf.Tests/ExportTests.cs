@@ -210,11 +210,18 @@ public sealed class ExportTests : IDisposable
         Assert.Equal(ts, GoDuration.Parse(go));
     }
 
+    /// <summary>
+    /// The meta-schema module: <c>DOCUCONF_SPEC_CUE</c> (docuconf-go's <c>spec/cue</c>) when set, else the copy in
+    /// <c>spec/</c>.
+    /// </summary>
     internal static string CueModule(string contract)
     {
+        var spec = Environment.GetEnvironmentVariable("DOCUCONF_SPEC_CUE") is { Length: > 0 } configured
+            ? configured
+            : Path.Join(AppContext.BaseDirectory, "spec");
         var module = Directory.CreateTempSubdirectory("docuconf-cue-").FullName;
-        CopyDirectory(Path.Join(AppContext.BaseDirectory, "spec", "cue.mod"), Path.Join(module, "cue.mod"));
-        CopyDirectory(Path.Join(AppContext.BaseDirectory, "spec", "contract"), Path.Join(module, "contract"));
+        CopyDirectory(Path.Join(spec, "cue.mod"), Path.Join(module, "cue.mod"));
+        CopyDirectory(Path.Join(spec, "contract"), Path.Join(module, "contract"));
         Directory.CreateDirectory(Path.Join(module, "out"));
         File.WriteAllText(Path.Join(module, "out", "contract.cue"), contract);
         return module;
@@ -239,7 +246,10 @@ public sealed class ExportTests : IDisposable
         var cue = FindCue();
         if (cue is null)
         {
-            Assert.Skip("The cue CLI is not installed; set DOCUCONF_CUE or put cue on PATH.");
+            // DOCUCONF_REQUIRE_VET=1 (scripts/conformance.sh) makes a missing cue fail instead of skip.
+            const string message = "The cue CLI is not installed; set DOCUCONF_CUE or put cue on PATH.";
+            Assert.False(Environment.GetEnvironmentVariable("DOCUCONF_REQUIRE_VET") == "1", message);
+            Assert.Skip(message);
         }
 
         var start = new ProcessStartInfo(cue) { WorkingDirectory = workingDirectory, RedirectStandardError = true, RedirectStandardOutput = true };

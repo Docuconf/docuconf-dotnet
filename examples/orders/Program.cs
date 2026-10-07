@@ -1,37 +1,15 @@
 using Docuconf;
-using Microsoft.Extensions.Options;
 using Orders.Api;
 
 // `dotnet Orders.Api.dll docuconf export contract.cue` writes the contract and exits.
-if (DocuconfExport.RunIfRequested(args))
-{
-    return;
-}
+if (DocuconfExport.RunIfRequested(args)) return;
 
 var builder = WebApplication.CreateBuilder(args);
-
-// Binds the Orders section (ORDERS__* environment variables, appsettings) and validates it at startup.
-builder.Services.AddDocuconf<OrdersOptions>();
-
+builder.AddDocuconf<OrdersOptions>();   // binds the Orders section and validates it at startup
 var app = builder.Build();
 
-OrdersOptions orders;
-try
-{
-    orders = app.Services.GetRequiredService<IOptions<OrdersOptions>>().Value;
-}
-catch (OptionsValidationException ex)
-{
-    // Every problem at once, each with a stable code. Secret values are never in the messages.
-    Console.Error.WriteLine("Invalid configuration:");
-    foreach (var failure in ex.Failures)
-    {
-        Console.Error.WriteLine("  " + failure);
-    }
-
-    Environment.ExitCode = 1;
-    return;
-}
+// The validated options, or every problem on stderr and exit status 1.
+var orders = app.Services.LoadOrExit<OrdersOptions>();
 
 app.MapGet("/healthz", () => "ok");
 app.MapGet("/config", () => new

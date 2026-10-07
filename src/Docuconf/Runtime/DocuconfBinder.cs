@@ -47,10 +47,19 @@ internal static class DocuconfBinder
                 continue;
             }
 
-            var section = configuration.GetSection(spec.ConfigKey);
+            var section = SectionOf(configuration, spec);
             if (!IsSet(section, spec))
             {
                 // Unset (or empty, which counts as unset for non-strings): the initializer stands.
+                continue;
+            }
+
+            // A list arrives as NAME__0, NAME__1, ...; one value such as NAME=a,b would otherwise bind as an empty list.
+            if (spec.Type == VarType.List && section.Value is { Length: > 0 } scalar)
+            {
+                var shown = spec.Secret ? "" : $" ('{scalar}')";
+                violations.Add(new Violation(Codes.InvalidType, spec.Name,
+                    $"is a list; set {spec.Name}__0, {spec.Name}__1, ... instead of one value{shown}"));
                 continue;
             }
 
@@ -94,13 +103,20 @@ internal static class DocuconfBinder
             }
         }
 
-        FileChecks.LoadAll(target, model, settings, violations);
+        FileChecks.LoadAll(target, model, settings, violations, configuration);
         return violations;
     }
 
     private static void BindJson(object target, IConfigurationSection section, VarSpec spec, List<Violation> violations)
     {
         var type = spec.ClrType!;
+        // maxLength measures the string the app received, before parsing (SPEC §4.3).
+        if (!string.IsNullOrEmpty(section.Value) && Constraints.MaxLength(spec, section.Value, "of JSON") is { } tooLong)
+        {
+            violations.Add(new Violation(tooLong.Code, spec.Name, tooLong.Message));
+            return;
+        }
+
         object? value;
         try
         {
@@ -127,6 +143,15 @@ internal static class DocuconfBinder
                 ? $"fails {attr.GetType().Name.Replace("Attribute", "", StringComparison.Ordinal)} (value redacted)"
                 : problem.Message;
             violations.Add(new Violation(Codes.SchemaMismatch, spec.Name, $"{problem.Path}: {message}"));
+        }
+
+        // A nested section (an appsettings file or overlay) is not a string: measure the compact JSON the platform
+        // would render for it.
+        if (problems.Count == 0 && string.IsNullOrEmpty(section.Value)
+            && Constraints.MaxLength(spec, CompactJson.Write(JsonVar.ToNode(value, type)), "of JSON") is { } tooLongSection)
+        {
+            violations.Add(new Violation(tooLongSection.Code, spec.Name, tooLongSection.Message));
+            return;
         }
 
         if (problems.Count == 0)
@@ -169,7 +194,8 @@ internal static class DocuconfBinder
                 value = ts;
                 return problem;
             case VarType.Url:
-                problem = WireFormat.ParseUrl(raw, out var uri);
+                // maxLength counts the characters of the URL as given, not of Uri.ToString() (SPEC §4.3).
+                problem = WireFormat.ParseUrl(raw, out var uri) ?? Constraints.MaxLength(spec, raw);
                 value = clr == typeof(Uri) ? uri : raw;
                 return problem;
         }
@@ -306,8 +332,35 @@ internal static class DocuconfBinder
         return current;
     }
 
-    internal static string Root(DocuconfSettings settings) =>
-        settings.FileRoot ?? Environment.GetEnvironmentVariable("DOCUCONF_FILE_ROOT") ?? "";
+    /// <summary>
+    /// The configuration section a variable binds from. A variable renamed with <see cref="EnvNameAttribute"/> is read
+    /// from its environment variable name first (the name the contract exports and the platform renders), then from its
+    /// configuration path, where appsettings files put it.
+    /// </summary>
+    internal static IConfigurationSection SectionOf(IConfiguration configuration, VarSpec spec)
+    {
+        if (!string.Equals(spec.Name, DerivedName(spec.ConfigKey), StringComparison.Ordinal))
+        {
+            var renamed = configuration.GetSection(spec.Name);
+            if (renamed.Exists())
+            {
+                return renamed;
+            }
+        }
+
+        return configuration.GetSection(spec.ConfigKey);
+    }
+
+    /// <summary>The environment variable name derived from a configuration path: <c>Billing:Port</c> is <c>BILLING__PORT</c>.</summary>
+    internal static string DerivedName(string configKey) => configKey.Replace(":", "__", StringComparison.Ordinal).ToUpperInvariant();
+
+    internal static string Root(DocuconfSettings settings, IConfiguration? configuration = null) =>
+        settings.FileRoot
+        ?? NonEmpty(configuration?["Docuconf:FileRoot"])
+        ?? NonEmpty(configuration?["DOCUCONF_FILE_ROOT"])
+        ?? Environment.GetEnvironmentVariable("DOCUCONF_FILE_ROOT") ?? "";
+
+    private static string? NonEmpty(string? value) => string.IsNullOrEmpty(value) ? null : value;
 
     internal static JsonSerializerOptions JsonOptions => SchemaGenerator.SerializerOptions;
 }

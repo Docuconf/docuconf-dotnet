@@ -128,7 +128,8 @@ public sealed class ItemBoundsTests
         var failures = Failures(new() { ["Bounds:Shards:0"] = "3", ["Bounds:Shards:1"] = "1024" });
 
         var failure = Assert.Single(failures);
-        Assert.StartsWith("[out_of_range] BOUNDS__SHARDS: Item 1 of Shards must be between 0 and 1023", failure, StringComparison.Ordinal);
+        // The same words as the contract-first mode, not the DataAnnotations sentence.
+        Assert.Equal("[out_of_range] BOUNDS__SHARDS: item 1 is above the maximum 1023", failure);
     }
 
     [Fact]
