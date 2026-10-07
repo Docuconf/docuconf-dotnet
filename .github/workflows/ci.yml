@@ -36,3 +36,36 @@ jobs:
       - run: dotnet test -c Release --no-build
       # Install the packed package from a local feed into a clean app and use it.
       - run: ./scripts/smoke-consumer.sh
+
+  example:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: docuconf/docuconf-go
+          ref: main
+          path: docuconf-go
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+      - run: go install cuelang.org/go/cmd/cue@v0.17.1
+      - name: Build examples/orders
+        run: dotnet build examples/orders -c Release
+      - name: contract.cue is up to date
+        run: |
+          dotnet examples/orders/bin/Release/net10.0/Orders.Api.dll docuconf export "$RUNNER_TEMP/contract.cue"
+          diff -u examples/orders/contract.cue "$RUNNER_TEMP/contract.cue"
+      - name: contract.cue passes the meta-schema
+        run: |
+          mkdir -p "$RUNNER_TEMP/cue/orders"
+          cp -r docuconf-go/spec/cue/cue.mod docuconf-go/spec/cue/contract "$RUNNER_TEMP/cue/"
+          cp examples/orders/contract.cue "$RUNNER_TEMP/cue/orders/"
+          cd "$RUNNER_TEMP/cue" && "$(go env GOPATH)/bin/cue" vet -c ./orders
+      - name: Smoke test
+        run: examples/orders/smoke.sh

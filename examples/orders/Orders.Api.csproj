@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Builds against the SDK in this repository, not a published package. -->
+    <ProjectReference Include="..\..\src\Docuconf\Docuconf.csproj" />
+  </ItemGroup>
+
+</Project>

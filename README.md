@@ -8,6 +8,8 @@ TLS key pairs, CA bundles, keystores, JSON config files and licence files.
 Part of [docuconf](https://github.com/docuconf). See the
 [specification](https://github.com/docuconf/docuconf-go/blob/main/spec/SPEC.md).
 
+**Example:** [`examples/orders`](examples/orders), a minimal API with its exported contract.
+
 > **Status:** `0.1.0-alpha`. The contract format is a draft (`v1alpha1`) and the API may change.
 
 ## Declare
