@@ -168,7 +168,8 @@ Set the contract's path in the project file, and every build writes it from the 
 ```
 
 In CI, build with `-p:DocuconfContractCheck=true`: the build writes nothing and fails when the checked-in file is out
-of date. You can also run the export by hand, against the publish output so the `appsettings*.json` files that ship
+of date. The check ignores only `metadata.generator.version` (the SDK version), so upgrading the SDK does not by
+itself make the file stale. You can also run the export by hand, against the publish output so the `appsettings*.json` files that ship
 are included:
 
 ```sh
