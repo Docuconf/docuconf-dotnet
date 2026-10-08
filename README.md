@@ -1,5 +1,7 @@
 # docuconf for .NET
 
+Documentation: [docuconf.dev](https://docuconf.dev) · [.NET guide](https://docuconf.dev/languages/dotnet/)
+
 Typed configuration contracts for the .NET Options pattern. Your options class, with the DataAnnotations
 you already use, becomes a contract that your Kubernetes platform checks **before deploy**, and that your
 app checks again **at startup**. It covers environment variables, `appsettings*.json`, and file inputs:
@@ -45,7 +47,8 @@ public sealed class OrdersOptions
     public string LogLevel { get; set; } = "info";
 
     // [Secret]: the platform must supply it from a Kubernetes Secret, and docuconf never prints it.
-    [Required, Secret, UrlSchemes("postgres")]
+    // [MaxLength] bounds the URL in characters; a longer one fails startup with out_of_range.
+    [Required, Secret, UrlSchemes("postgres"), MaxLength(2048)]
     [Description("Postgres connection string for the orders database")]
     public string DatabaseUrl { get; set; } = "";
 

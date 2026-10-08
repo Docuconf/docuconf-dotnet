@@ -89,9 +89,10 @@ jobs:
           dotnet-version: |
             8.0.x
             10.0.x
+      # docuconf-go's cmd/docuconf, built below for the docs check, needs Go 1.25.
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.24"
+          go-version: "1.25"
       - run: go install cuelang.org/go/cmd/cue@v0.17.1
       # The build-time export in check mode fails the build when contract.cue is out of date.
       - name: Build examples/orders; contract.cue is up to date
@@ -102,5 +103,18 @@ jobs:
           cp -r docuconf-go/spec/cue/cue.mod docuconf-go/spec/cue/contract "$RUNNER_TEMP/cue/"
           cp examples/orders/contract.cue "$RUNNER_TEMP/cue/orders/"
           cd "$RUNNER_TEMP/cue" && "$(go env GOPATH)/bin/cue" vet -c ./orders
+      # CONFIG.md, CONFIG.agents.md and docs.json are generated from contract.cue by the docuconf CLI of the pinned
+      # docuconf-go; they must match what it writes today. The checks read the committed contract.cue (release PRs
+      # bump its generator.version), so restore it in case a build re-exported it. These are the README's commands.
+      - name: Install the docuconf CLI
+        working-directory: docuconf-go/cmd/docuconf
+        run: go install .
+      - name: Generated docs are up to date
+        working-directory: examples/orders
+        run: |
+          git checkout -- contract.cue
+          "$(go env GOPATH)/bin/docuconf" docs contract.cue --check CONFIG.md
+          "$(go env GOPATH)/bin/docuconf" docs contract.cue --format agents --check CONFIG.agents.md
+          "$(go env GOPATH)/bin/docuconf" docs contract.cue --format model --check docs.json
       - name: Smoke test
         run: examples/orders/smoke.sh

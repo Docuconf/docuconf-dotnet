@@ -10,7 +10,7 @@
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <IsTrimmable>false</IsTrimmable>
     <PackageReadmeFile>README.md</PackageReadmeFile>
-    <PackageProjectUrl>https://github.com/docuconf/docuconf-dotnet</PackageProjectUrl>
+    <PackageProjectUrl>https://docuconf.dev/languages/dotnet/</PackageProjectUrl>
     <!-- SourceLink (built into the .NET SDK) maps the symbols to GitHub sources. -->
     <PublishRepositoryUrl>true</PublishRepositoryUrl>
     <EmbedUntrackedSources>true</EmbedUntrackedSources>

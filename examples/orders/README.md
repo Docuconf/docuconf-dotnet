@@ -9,7 +9,8 @@ gives an app:
 - one check at startup that reports every problem at once, with stable codes, and exits 1
   ([`Program.cs`](Program.cs));
 - a CUE contract exported from the options class, for the platform to validate before it deploys
-  ([`contract.cue`](contract.cue)).
+  ([`contract.cue`](contract.cue)), and the docs generated from it ([`CONFIG.md`](CONFIG.md),
+  [`CONFIG.agents.md`](CONFIG.agents.md)).
 
 The options bind from the `Orders` section, so each setting is an `ORDERS__*` environment variable:
 
@@ -17,7 +18,7 @@ The options bind from the `Orders` section, so each setting is an `ORDERS__*` en
 |---|---|---|
 | `ORDERS__PORT` | int | 1–65535, default `8080` |
 | `ORDERS__LOGLEVEL` | enum | `debug`, `info`, `warn`, `error`; default `info` |
-| `ORDERS__DATABASEURL` | url | secret, required, scheme `postgres` |
+| `ORDERS__DATABASEURL` | url | secret, required, scheme `postgres`, at most 2048 characters |
 | `ORDERS__ALLOWEDORIGINS__0`, `__1`, ... | list of strings | at least 1 item; default `["http://localhost:3000"]` |
 | `ORDERS__REQUESTTIMEOUT` | duration, `hh:mm:ss` | `00:00:01`–`00:05:00`, default `00:00:30` |
 | `ORDERS__WORKERCOUNT` | int | 1–64, default `4` |
@@ -68,6 +69,24 @@ contract.cue is up to date
 
 Run the export against the build or publish output: the contract includes any `appsettings*.json` files that ship
 with the app (this example has none).
+
+## Generated docs
+
+[`CONFIG.md`](CONFIG.md), [`CONFIG.agents.md`](CONFIG.agents.md) and [`docs.json`](docs.json) are generated from
+`contract.cue` by the `docuconf` CLI from [docuconf-go](https://github.com/docuconf/docuconf-go); never edit them by
+hand either. The first is the reference for developers, the second the rules and facts AI agents need to change the
+code or set deployment values, and the third the docs model both are rendered from. Regenerate them after exporting
+the contract; CI runs the same commands with `--check` in place of `-o` and fails when they are out of date:
+
+```console
+$ cd examples/orders
+$ docuconf docs contract.cue -o CONFIG.md
+$ docuconf docs contract.cue --format agents -o CONFIG.agents.md
+$ docuconf docs contract.cue --format model -o docs.json
+```
+
+`ORDERS__WORKERCOUNT` shows where the text comes from: the XML doc `<summary>` is its description, and the
+`<remarks>` its details.
 
 ## Deploy
 
