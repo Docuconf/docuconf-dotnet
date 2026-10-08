@@ -29,7 +29,8 @@ target that exports the contract on build. With the first release on nuget.org t
 
 ## 2. Declare
 
-Add `[ConfigContract]`, `[Description]` and, for secrets, `[Secret]` to the options class you already have:
+Add `[ConfigContract]`, a description for each input (`[Description]`, or the XML doc `<summary>`) and, for secrets,
+`[Secret]` to the options class you already have:
 
 ```csharp
 [ConfigContract("orders-api", Section = "Orders")]
@@ -58,8 +59,21 @@ public sealed class OrdersOptions
     [Description("Time allowed to handle one request")]
     public TimeSpan RequestTimeout { get; set; } = TimeSpan.FromSeconds(30);
 
+    // An XML doc comment works instead of [Description]: the <summary> is the description, and the <remarks> are the
+    // details, longer docs for docuconf docs (the project sets GenerateDocumentationFile).
+
+    /// <summary>Background workers that process new orders.</summary>
+    /// <remarks>
+    /// <para>
+    /// Each worker holds one connection from the pool of <see cref="DatabaseUrl"/>, so keep this below the database's
+    /// connection limit.
+    /// </para>
+    /// <list type="bullet">
+    /// <item><description>Raise it when the order queue backs up.</description></item>
+    /// <item><description>Lower it when the database is the bottleneck.</description></item>
+    /// </list>
+    /// </remarks>
     [Range(1, 64)]
-    [Description("Background workers that process new orders")]
     public int WorkerCount { get; set; } = 4;
 }
 ```
@@ -218,7 +232,7 @@ list items must be numbered from 0 with no gap.
 
 | Attribute | Input |
 |---|---|
-| `[Description("...")]` | Required on every input, at least 5 characters. |
+| `[Description("...")]` | The description, at least 5 characters; or the XML doc `<summary>` (see [Descriptions and details](#descriptions-and-details)). |
 | `[Secret]` | Must come from a Kubernetes Secret; no default; never printed. A record's generated `ToString` would print it, so a record needs its own `PrintMembers`. |
 | `[UrlSchemes("https")]` on a `string` or `Uri` | A URL with an allowed scheme. |
 | `[EnvName("LOG_LEVEL")]` | Overrides the derived variable name. The app reads that variable, and the configuration path (for appsettings) when it is not set. |
@@ -234,6 +248,33 @@ list items must be numbered from 0 with no gap.
 | `[KeystoreFile(path, PasswordProperty = ...)]` on a `Keystore` | A PKCS#12 keystore; its password is a `[Secret]` property. |
 | `[TextFile(path, Pattern = ...)]` on a `string` | A text file such as a licence key; the property receives the content. |
 | `[BinaryFile(path)]` on a `BinaryFile` | Opaque bytes. |
+
+### Descriptions and details
+
+Every input has a **description**: what it is, in one phrase of plain text. It is `[Description("...")]` (or
+`[Display(Description = "...")]`), or else the property's XML doc `<summary>`, on one line without its final period. A
+missing or blank description, or one under 5 characters, is a declaration error. An input may also have **details**:
+CommonMark on why it exists and when to change it, from the XML doc `<remarks>`, at most 4000 characters (Unicode code
+points). Details go into the contract for generated docs only and are never read at runtime.
+
+The compiler writes doc comments to an XML file beside the assembly (`Orders.Api.xml`) only when the project asks for
+it, and docuconf reads them from there, so set `GenerateDocumentationFile` in the app's project file:
+
+```xml
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <!-- Docs are wanted on the options classes, not on every public member. -->
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+```
+
+Without it, only `[Description]` counts, at build (the analyzer) and at startup alike. `dotnet publish` copies the XML
+file to the output. `<remarks>` become CommonMark: `<para>` is a paragraph, `<c>`, `<see cref>`, `<see langword>` and
+`<paramref>` are code spans, `<see href>` is a link, `<code>` is a fenced block, `<list type="bullet|number">` is a
+list, `<b>`/`<i>` are emphasis and `<br/>` a line break; other elements keep their text. Remarks over 4000 characters,
+or blank, fail the export and startup.
+
+`docuconf docs` in the [docuconf CLI](https://github.com/docuconf/docuconf-go) generates CONFIG.md and
+CONFIG.agents.md from the exported contract: `docuconf docs contract.cue -o CONFIG.md`, and
+`--format agents -o CONFIG.agents.md`.
 
 ### File inputs and structured values
 
@@ -267,7 +308,7 @@ startup would give later:
 
 | ID | Error |
 |---|---|
-| DOCUCONF001 | An input has no `[Description]` of at least 5 characters. |
+| DOCUCONF001 | An input has no `[Description]`, or XML doc `<summary>` when the project generates a documentation file, of at least 5 characters. |
 | DOCUCONF002 | A `[Secret]` has an initializer. |
 | DOCUCONF003 | A constraint does not fit the property's type. |
 | DOCUCONF004 | A literal default (or the `0` of an unset number) violates `[Range]` or `[AllowedValues]`. |

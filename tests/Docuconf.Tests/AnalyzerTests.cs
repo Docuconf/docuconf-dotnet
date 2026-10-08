@@ -86,7 +86,7 @@ public sealed class AnalyzerTests
         Assert.Equal(
         [
             "DOCUCONF006: Service name 'Orders_API' must be a DNS label: lowercase letters, digits and hyphens",
-            "DOCUCONF001: Orders:Port: add [Description(\"...\")] of at least 5 characters; every input in a contract is documented",
+            "DOCUCONF001: Orders:Port: add [Description(\"...\")] or a /// <summary> (with GenerateDocumentationFile) of at least 5 characters; every input in a contract is documented",
             "DOCUCONF008: Orders:DatabaseUrl: OrdersOptions is a record, so its generated ToString prints this [Secret] value; make OrdersOptions a class, or declare PrintMembers to leave secrets out",
             "DOCUCONF002: Orders:DatabaseUrl: a [Secret] value cannot have a default; remove the initializer",
             "DOCUCONF003: Orders:Upstream: [UrlSchemes] applies to string or Uri properties, but Int32 is exported as an int variable; remove the attribute or change the property's type",

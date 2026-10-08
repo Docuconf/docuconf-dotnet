@@ -69,6 +69,8 @@ public sealed class VarSpec
     public required VarType Type { get; init; }
     /// <summary>The description.</summary>
     public required string Description { get; init; }
+    /// <summary>Longer documentation in CommonMark, for generated docs only (SPEC §4.2): the XML doc <c>&lt;remarks&gt;</c>.</summary>
+    public string? Details { get; init; }
     /// <summary>Whether the platform must supply it.</summary>
     public bool Required { get; set; }
     /// <summary>Whether it is secret.</summary>
@@ -145,6 +147,8 @@ public sealed class FileSpec
     public required FileType Type { get; init; }
     /// <summary>The description.</summary>
     public required string Description { get; init; }
+    /// <summary>Longer documentation in CommonMark, for generated docs only (SPEC §4.2): the XML doc <c>&lt;remarks&gt;</c>.</summary>
+    public string? Details { get; init; }
     /// <summary>Whether the platform must supply it.</summary>
     public bool Required { get; init; }
     /// <summary>Whether its content is secret.</summary>

@@ -10,6 +10,8 @@
     <OutputType>Exe</OutputType>
     <IsPackable>false</IsPackable>
     <NoWarn>$(NoWarn);CS1591</NoWarn>
+    <!-- OrdersOptions documents WorkerCount with an XML doc comment, read from the doc file as in the example app. -->
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
   </PropertyGroup>
 
   <ItemGroup>

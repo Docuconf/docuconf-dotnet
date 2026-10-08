@@ -131,6 +131,7 @@ public static partial class CueWriter
             _ => "list",
         }));
         w.Field("description", Str(v.Description));
+        if (v.Details is { } details) w.Field("details", Str(details));
         if (v.Required) w.Field("required", "true");
         if (v.Secret) w.Field("secret", "true");
         if (v.ConfigKey.Length > 0) w.Field("configKey", Str(v.ConfigKey));
@@ -175,6 +176,7 @@ public static partial class CueWriter
         }));
         if (f.Format is { } format) w.Field("format", Str(format));
         w.Field("description", Str(f.Description));
+        if (f.Details is { } fileDetails) w.Field("details", Str(fileDetails));
         if (f.Required) w.Field("required", "true");
         if (f.Secret && f.Type is not (FileType.Tls or FileType.Keystore)) w.Field("secret", "true");
         w.Field("path", Str(f.Path));

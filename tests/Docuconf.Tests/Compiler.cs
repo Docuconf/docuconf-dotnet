@@ -26,21 +26,46 @@ internal static class Compiler
             .Select(p => (MetadataReference)MetadataReference.CreateFromFile(p))
             .ToList());
 
-    public static CSharpCompilation Compilation(string source) =>
+    /// <summary>A compilation of <paramref name="source"/>; with <paramref name="docs"/>, doc comments are parsed, as with <c>GenerateDocumentationFile</c>.</summary>
+    public static CSharpCompilation Compilation(string source, bool docs = false) =>
         CSharpCompilation.Create(
             "Decl" + Guid.NewGuid().ToString("N"),
-            [CSharpSyntaxTree.ParseText(Usings + source, new CSharpParseOptions(LanguageVersion.Latest))],
+            [CSharpSyntaxTree.ParseText(Usings + source, new CSharpParseOptions(LanguageVersion.Latest, docs ? DocumentationMode.Diagnose : DocumentationMode.Parse))],
             References.Value,
             new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, nullableContextOptions: NullableContextOptions.Enable));
 
     /// <summary>The analyzer's diagnostics for <paramref name="source"/>, as <c>ID: message</c>.</summary>
-    public static async Task<IReadOnlyList<string>> Analyze(string source)
+    public static async Task<IReadOnlyList<string>> Analyze(string source, bool docs = false)
     {
-        var compilation = Compilation(source);
+        var compilation = Compilation(source, docs);
         var errors = compilation.GetDiagnostics().Where(d => d.Severity == DiagnosticSeverity.Error).ToList();
         Assert.True(errors.Count == 0, "the test source does not compile: " + string.Join("; ", errors));
         var diagnostics = await compilation.WithAnalyzers([new DeclarationAnalyzer()]).GetAnalyzerDiagnosticsAsync(TestContext.Current.CancellationToken);
         return diagnostics.OrderBy(d => d.Location.SourceSpan.Start).Select(d => $"{d.Id}: {d.GetMessage(System.Globalization.CultureInfo.InvariantCulture)}").ToList();
+    }
+
+    /// <summary>
+    /// Compiles <paramref name="source"/> as a project with <c>GenerateDocumentationFile</c> does: the assembly and its
+    /// XML doc file side by side in a new directory. Loads the assembly from there.
+    /// </summary>
+    public static Assembly LoadWithDocs(string source)
+    {
+        var name = "Decl" + Guid.NewGuid().ToString("N");
+        var dir = Directory.CreateTempSubdirectory("docuconf-xmldoc-").FullName;
+        var compilation = CSharpCompilation.Create(
+            name,
+            [CSharpSyntaxTree.ParseText(Usings + source, new CSharpParseOptions(LanguageVersion.Latest, DocumentationMode.Diagnose))],
+            References.Value,
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, nullableContextOptions: NullableContextOptions.Enable));
+        var dll = Path.Join(dir, name + ".dll");
+        using (var peStream = File.Create(dll))
+        using (var xmlStream = File.Create(Path.Join(dir, name + ".xml")))
+        {
+            var result = compilation.Emit(peStream, xmlDocumentationStream: xmlStream);
+            Assert.True(result.Success, string.Join("; ", result.Diagnostics));
+        }
+
+        return Assembly.LoadFrom(dll);
     }
 
     /// <summary>Compiles and loads <paramref name="source"/>.</summary>
