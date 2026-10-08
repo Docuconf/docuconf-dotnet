@@ -45,7 +45,8 @@ public sealed class OrdersOptions
     public string LogLevel { get; set; } = "info";
 
     // [Secret]: the platform must supply it from a Kubernetes Secret, and docuconf never prints it.
-    [Required, Secret, UrlSchemes("postgres")]
+    // [MaxLength] bounds the URL in characters; a longer one fails startup with out_of_range.
+    [Required, Secret, UrlSchemes("postgres"), MaxLength(2048)]
     [Description("Postgres connection string for the orders database")]
     public string DatabaseUrl { get; set; } = "";
 
