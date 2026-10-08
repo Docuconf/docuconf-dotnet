@@ -1,5 +1,7 @@
 # docuconf for .NET
 
+Documentation: [docuconf.dev](https://docuconf.dev) · [.NET guide](https://docuconf.dev/languages/dotnet/)
+
 Typed configuration contracts for the .NET Options pattern. Your options class, with the DataAnnotations
 you already use, becomes a contract that your Kubernetes platform checks **before deploy**, and that your
 app checks again **at startup**. It covers environment variables, `appsettings*.json`, and file inputs:
