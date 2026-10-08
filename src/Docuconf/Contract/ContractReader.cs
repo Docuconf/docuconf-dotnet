@@ -239,7 +239,7 @@ public static partial class ContractReader
             return;
         }
 
-        var description = DescriptionOf(prop, key, errors);
+        var (description, details) = DescriptionOf(prop, key, errors);
         bool secret = prop.GetCustomAttribute<SecretAttribute>() is not null;
         bool required = prop.GetCustomAttribute<RequiredAttribute>() is not null;
         var listKind = ListItemKind(clr);
@@ -383,6 +383,7 @@ public static partial class ContractReader
             ConfigKey = key,
             Type = type,
             Description = description,
+            Details = details,
             Required = required,
             Secret = secret,
             Min = min,
@@ -531,7 +532,7 @@ public static partial class ContractReader
             errors.Add($"{key}: Reload.Watch is not supported for [{attr.GetType().Name.Replace("Attribute", "", StringComparison.Ordinal)}] yet; use Reload.Restart so the platform rolls the pods when it changes.");
         }
 
-        var description = DescriptionOf(prop, key, errors);
+        var (description, details) = DescriptionOf(prop, key, errors);
         bool required = prop.GetCustomAttribute<RequiredAttribute>() is not null;
         bool secret = prop.GetCustomAttribute<SecretAttribute>() is not null;
         long? maxSize = attr.MaxSize > 0 ? attr.MaxSize : null;
@@ -555,7 +556,7 @@ public static partial class ContractReader
 
                 spec = new FileSpec
                 {
-                    Name = name, Type = FileType.Config, Format = "json", Description = description, Required = required, Secret = secret,
+                    Name = name, Type = FileType.Config, Format = "json", Description = description, Details = details, Required = required, Secret = secret,
                     Path = attr.Path, PathEnv = attr.PathEnv, Reload = attr.Reload, MaxSize = maxSize,
                     Schema = SchemaGenerator.For(prop.PropertyType), PropertyPath = path,
                 };
@@ -570,7 +571,7 @@ public static partial class ContractReader
 
                 spec = new FileSpec
                 {
-                    Name = name, Type = FileType.Tls, Description = description, Required = required, Secret = true,
+                    Name = name, Type = FileType.Tls, Description = description, Details = details, Required = required, Secret = true,
                     Path = attr.Path, PathEnv = attr.PathEnv, Reload = attr.Reload, MaxSize = maxSize,
                     DnsNames = tls.DnsNames.Length > 0 ? tls.DnsNames : null,
                     KeyAlgorithms = tls.KeyAlgorithms == KeyAlgorithms.Any
@@ -584,7 +585,7 @@ public static partial class ContractReader
                 Expect(typeof(CaBundle));
                 spec = new FileSpec
                 {
-                    Name = name, Type = FileType.CaBundle, Description = description, Required = required, Secret = secret,
+                    Name = name, Type = FileType.CaBundle, Description = description, Details = details, Required = required, Secret = secret,
                     Path = attr.Path, PathEnv = attr.PathEnv, Reload = attr.Reload, MaxSize = maxSize,
                     MinCertificates = ca.MinCertificates == 1 ? null : ca.MinCertificates, PropertyPath = path,
                 };
@@ -594,7 +595,7 @@ public static partial class ContractReader
                 Expect(typeof(Keystore));
                 spec = new FileSpec
                 {
-                    Name = name, Type = FileType.Keystore, Format = "pkcs12", Description = description, Required = required, Secret = true,
+                    Name = name, Type = FileType.Keystore, Format = "pkcs12", Description = description, Details = details, Required = required, Secret = true,
                     Path = attr.Path, PathEnv = attr.PathEnv, Reload = attr.Reload, MaxSize = maxSize, PropertyPath = path,
                 };
                 if (ks.PasswordProperty is not null)
@@ -619,7 +620,7 @@ public static partial class ContractReader
 
                 spec = new FileSpec
                 {
-                    Name = name, Type = FileType.Text, Description = description, Required = required, Secret = secret,
+                    Name = name, Type = FileType.Text, Description = description, Details = details, Required = required, Secret = secret,
                     Path = attr.Path, PathEnv = attr.PathEnv, Reload = attr.Reload, MaxSize = maxSize,
                     Pattern = text.Pattern, MinLength = text.MinLength > 0 ? text.MinLength : null,
                     MaxLength = text.MaxLength > 0 ? text.MaxLength : null, PropertyPath = path,
@@ -630,7 +631,7 @@ public static partial class ContractReader
                 Expect(typeof(BinaryFile));
                 spec = new FileSpec
                 {
-                    Name = name, Type = FileType.Binary, Description = description, Required = required, Secret = secret,
+                    Name = name, Type = FileType.Binary, Description = description, Details = details, Required = required, Secret = secret,
                     Path = attr.Path, PathEnv = attr.PathEnv, Reload = attr.Reload, MaxSize = maxSize, PropertyPath = path,
                 };
                 break;
@@ -664,24 +665,37 @@ public static partial class ContractReader
 
             model.Files[spec.Name] = new FileSpec
             {
-                Name = spec.Name, Type = spec.Type, Format = spec.Format, Description = spec.Description, Required = spec.Required,
+                Name = spec.Name, Type = spec.Type, Format = spec.Format, Description = spec.Description, Details = spec.Details, Required = spec.Required,
                 Secret = spec.Secret, Path = spec.Path, PathEnv = spec.PathEnv, Reload = spec.Reload, MaxSize = spec.MaxSize,
                 PasswordVar = password.Name, PropertyPath = spec.PropertyPath, PasswordPath = password.PropertyPath,
             };
         }
     }
 
-    private static string DescriptionOf(PropertyInfo prop, string key, List<string> errors)
+    /// <summary>
+    /// An input's description and details (SPEC §14.7): the description from <c>[Description]</c> (or
+    /// <c>[Display(Description)]</c>), else the XML doc <c>&lt;summary&gt;</c>; the details from the XML doc
+    /// <c>&lt;remarks&gt;</c>, read from the assembly's documentation file.
+    /// </summary>
+    private static (string Description, string? Details) DescriptionOf(PropertyInfo prop, string key, List<string> errors)
     {
+        var (summary, remarks) = XmlDocs.Of(prop);
         var description = prop.GetCustomAttribute<DescriptionAttribute>()?.Description
-            ?? prop.GetCustomAttribute<DisplayAttribute>()?.GetDescription();
-        if (string.IsNullOrWhiteSpace(description) || description.Trim().Length < 5)
+            ?? prop.GetCustomAttribute<DisplayAttribute>()?.GetDescription()
+            ?? summary;
+        if (remarks is not null && XmlDocs.DetailsProblem(remarks) is { } problem)
         {
-            errors.Add($"{key}: add [Description(\"...\")] of at least 5 characters. Every input in a contract is documented.");
-            return "";
+            errors.Add($"{key}: the <remarks> of its XML doc comment are its details: {problem}.");
+            remarks = null;
         }
 
-        return description.Trim();
+        if (string.IsNullOrWhiteSpace(description) || XmlDocs.CodePoints(description.Trim()) < 5)
+        {
+            errors.Add($"{key}: add [Description(\"...\")] or a /// <summary> (with GenerateDocumentationFile) of at least 5 characters. Every input in a contract is documented.");
+            return ("", remarks);
+        }
+
+        return (description.Trim(), remarks);
     }
 
     private static (int? Min, int? Max) LengthBounds(PropertyInfo prop)

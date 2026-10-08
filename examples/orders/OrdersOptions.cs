@@ -32,7 +32,20 @@ public sealed class OrdersOptions
     [Description("Time allowed to handle one request")]
     public TimeSpan RequestTimeout { get; set; } = TimeSpan.FromSeconds(30);
 
+    // An XML doc comment works instead of [Description]: the <summary> is the description, and the <remarks> are the
+    // details, longer docs for docuconf docs (the project sets GenerateDocumentationFile).
+
+    /// <summary>Background workers that process new orders.</summary>
+    /// <remarks>
+    /// <para>
+    /// Each worker holds one connection from the pool of <see cref="DatabaseUrl"/>, so keep this below the database's
+    /// connection limit.
+    /// </para>
+    /// <list type="bullet">
+    /// <item><description>Raise it when the order queue backs up.</description></item>
+    /// <item><description>Lower it when the database is the bottleneck.</description></item>
+    /// </list>
+    /// </remarks>
     [Range(1, 64)]
-    [Description("Background workers that process new orders")]
     public int WorkerCount { get; set; } = 4;
 }

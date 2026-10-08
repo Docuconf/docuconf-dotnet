@@ -26,7 +26,7 @@ public sealed class DeclarationAnalyzer : DiagnosticAnalyzer
 
     internal static readonly DiagnosticDescriptor MissingDescription = Rule("DOCUCONF001",
         "Every input needs a description",
-        "{0}: add [Description(\"...\")] of at least 5 characters; every input in a contract is documented");
+        "{0}: add [Description(\"...\")] or a /// <summary> (with GenerateDocumentationFile) of at least 5 characters; every input in a contract is documented");
 
     internal static readonly DiagnosticDescriptor SecretWithDefault = Rule("DOCUCONF002",
         "A secret cannot have a default",
@@ -406,6 +406,21 @@ public sealed class DeclarationAnalyzer : DiagnosticAnalyzer
             else if (Is(attribute.AttributeClass, "System.ComponentModel.DataAnnotations.DisplayAttribute"))
             {
                 description ??= attribute.NamedArguments.FirstOrDefault(a => a.Key == "Description").Value.Value as string;
+            }
+        }
+
+        // Without [Description], the XML doc <summary> is the description (SPEC §14.7). The compiler only parses doc
+        // comments when the project generates a documentation file, which is also when the runtime can read them.
+        if (description is null && prop.GetDocumentationCommentXml(cancellationToken: default) is { Length: > 0 } xml)
+        {
+            try
+            {
+                var summary = System.Xml.Linq.XElement.Parse(xml).Element("summary");
+                description = summary is null ? null : Regex.Replace(summary.Value, @"\s+", " ");
+            }
+            catch (System.Xml.XmlException)
+            {
+                // A malformed doc comment is the compiler's to report.
             }
         }
 

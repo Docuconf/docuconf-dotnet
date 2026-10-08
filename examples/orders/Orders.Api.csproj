@@ -5,6 +5,10 @@
     <IsPackable>false</IsPackable>
     <!-- Every build re-exports contract.cue; CI builds with -p:DocuconfContractCheck=true to fail when it is stale. -->
     <DocuconfContractPath>contract.cue</DocuconfContractPath>
+    <!-- The XML doc file next to the assembly: docuconf export reads <summary> and <remarks> from it. -->
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <!-- Docs are wanted on the options classes, not on every public member. -->
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
   </PropertyGroup>
 
   <!--

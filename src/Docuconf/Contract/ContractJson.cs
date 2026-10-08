@@ -145,6 +145,21 @@ internal static partial class ContractJson
             return null;
         }
 
+        // details is documentation only (SPEC §4.2): checked as the meta-schema does, never used at runtime.
+        string? details = null;
+        if (v["details"] is { } detailsNode)
+        {
+            details = detailsNode.GetValueKind() == System.Text.Json.JsonValueKind.String ? detailsNode.GetValue<string>() : null;
+            if (details is null)
+            {
+                Error("details must be a string.");
+            }
+            else if (XmlDocs.DetailsProblem(details) is { } problem)
+            {
+                Error(problem + ".");
+            }
+        }
+
         string? encoding = v["encoding"]?.GetValue<string>();
         string? items = v["items"]?.GetValue<string>();
         if (type == VarType.Duration)
@@ -192,6 +207,7 @@ internal static partial class ContractJson
             ConfigKey = v["configKey"]?.GetValue<string>() ?? "",
             Type = type.Value,
             Description = v["description"]?.GetValue<string>() ?? "",
+            Details = details,
             Required = v["required"]?.GetValue<bool>() ?? false,
             Secret = v["secret"]?.GetValue<bool>() ?? false,
             Min = Bound(type.Value, v["min"]),

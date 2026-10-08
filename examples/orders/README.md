@@ -3,7 +3,8 @@
 A tiny ASP.NET Core minimal API whose configuration is declared with docuconf. It shows the three things the .NET SDK
 gives an app:
 
-- an ordinary options class with DataAnnotations, plus docuconf attributes for descriptions and secrets
+- an ordinary options class with DataAnnotations, plus docuconf attributes for descriptions and secrets; `WorkerCount`
+  is documented with an XML doc comment instead, whose `<remarks>` become the contract's `details`
   ([`OrdersOptions.cs`](OrdersOptions.cs));
 - one check at startup that reports every problem at once, with stable codes, and exits 1
   ([`Program.cs`](Program.cs));
