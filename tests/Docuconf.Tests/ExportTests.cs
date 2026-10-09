@@ -192,7 +192,7 @@ public sealed class ExportTests : IDisposable
         Assert.Contains(ex.Errors, e => e.Contains("Broken:Token: a [Secret] value cannot have a default", StringComparison.Ordinal));
         Assert.Contains(ex.Errors, e => e.Contains("Broken:Workers: the default 0 is below the minimum 1", StringComparison.Ordinal));
         Assert.Contains(ex.Errors, e => e.Contains("Broken:Code: pattern", StringComparison.Ordinal) && e.Contains("RE2", StringComparison.Ordinal));
-        Assert.Contains(ex.Errors, e => e.Contains("Broken:Settings: Reload.Watch is not supported", StringComparison.Ordinal));
+        Assert.Contains(ex.Errors, e => e.Contains("Broken:Settings: Reload.Watch needs a ConfigFile<Routes> property", StringComparison.Ordinal));
         Assert.Contains(ex.Errors, e => e.Contains("Broken:Pair: a [TlsFile] property must be of type TlsKeyPair", StringComparison.Ordinal));
         Assert.Contains(ex.Errors, e => e.Contains("Broken:Scalar: a [JsonVar] property must be a class", StringComparison.Ordinal));
         Assert.Contains(ex.Errors, e => e.Contains("Broken:Limit: the default {\"rps\":0,\"burst\":0,\"key\":\"ip\"} fails its schema at $.rps", StringComparison.Ordinal));

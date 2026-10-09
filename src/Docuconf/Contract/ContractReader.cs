@@ -26,13 +26,13 @@ public sealed class ContractReadSettings
 /// <summary>Reads <see cref="ConfigContractAttribute"/> options classes into a <see cref="ContractModel"/>.</summary>
 public static partial class ContractReader
 {
-    [GeneratedRegex("^[A-Z][A-Z0-9_]*$")]
+    [GeneratedRegex("^[A-Z][A-Z0-9_]*\\z")]
     private static partial Regex EnvNameSyntax();
 
-    [GeneratedRegex("^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$")]
+    [GeneratedRegex("^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?\\z")]
     private static partial Regex ServiceSyntax();
 
-    [GeneratedRegex("^[a-z]([-a-z0-9]{0,40}[a-z0-9])?$")]
+    [GeneratedRegex("^[a-z]([-a-z0-9]{0,40}[a-z0-9])?\\z")]
     private static partial Regex InputNameSyntax();
 
     // Regex features .NET has and RE2 lacks: lookaround, backreferences, atomic groups, possessive quantifiers.
@@ -129,6 +129,7 @@ public static partial class ContractReader
 
         ResolveKeystorePasswords(model, pending, errors);
         ReadOverlays(types, model, errors);
+        CheckReplacements(model, errors);
 
         if (settings.ContentRoot is not null)
         {
@@ -179,7 +180,9 @@ public static partial class ContractReader
                 continue;
             }
 
-            var key = section.Length == 0 ? prop.Name : section + ":" + prop.Name;
+            // [ConfigurationKeyName] renames the key the configuration binder reads, so the contract follows it.
+            var keyName = prop.GetCustomAttribute<Microsoft.Extensions.Configuration.ConfigurationKeyNameAttribute>()?.Name ?? prop.Name;
+            var key = section.Length == 0 ? keyName : section + ":" + keyName;
             var propPath = path.Append(prop).ToList();
 
             if (prop.GetCustomAttribute<ExternalAttribute>() is not null)
@@ -195,7 +198,11 @@ public static partial class ContractReader
             }
 
             var clr = Nullable.GetUnderlyingType(prop.PropertyType) ?? prop.PropertyType;
-            if (prop.GetCustomAttribute<JsonVarAttribute>() is not null)
+            if (clr == typeof(KeySet))
+            {
+                ReadVar(prop, clr, instance, key, propPath, model, errors);
+            }
+            else if (prop.GetCustomAttribute<JsonVarAttribute>() is not null)
             {
                 if (IsScalar(clr) || clr.IsValueType)
                 {
@@ -247,7 +254,13 @@ public static partial class ContractReader
         VarType type;
         IReadOnlyList<string>? values = null;
         IReadOnlyList<string>? schemes = prop.GetCustomAttribute<UrlSchemesAttribute>()?.Schemes;
-        if (json)
+        if (clr == typeof(KeySet))
+        {
+            // Always secret (SPEC §4.3), whether or not it is marked [Secret].
+            type = VarType.KeySet;
+            secret = true;
+        }
+        else if (json)
         {
             type = VarType.Json;
             listKind = null;
@@ -357,11 +370,17 @@ public static partial class ContractReader
         }
 
         string? encoding = null, separator = null;
+        if (type == VarType.KeySet)
+        {
+            // A key set is one value, keys joined by a comma, unless [Csv] names another separator.
+            (encoding, separator) = ("csv", ",");
+        }
+
         if (prop.GetCustomAttribute<CsvAttribute>() is { } csv)
         {
-            if (type != VarType.List)
+            if (type is not (VarType.List or VarType.KeySet))
             {
-                errors.Add($"{key}: [Csv] applies to lists, such as string[] or List<string>.");
+                errors.Add($"{key}: [Csv] applies to lists, such as string[] or List<string>, and key sets.");
             }
             else if (csv.Separator.Length == 0)
             {
@@ -388,6 +407,39 @@ public static partial class ContractReader
         {
             errors.Add($"{key}: [JsonVar(MaxLength)] must not be negative.");
         }
+        int? minKeys = null, maxKeys = null, keyMinLength = null, keyMaxLength = null;
+        if (prop.GetCustomAttribute<KeySetAttribute>() is { } keys)
+        {
+            if (type != VarType.KeySet)
+            {
+                errors.Add($"{key}: [KeySet] applies to properties of type KeySet.");
+            }
+            else if (keys.MinKeys < 1 || keys.MaxKeys < keys.MinKeys)
+            {
+                errors.Add($"{key}: [KeySet] needs MinKeys of at least 1 and MaxKeys of at least MinKeys; it has {keys.MinKeys} and {keys.MaxKeys}.");
+            }
+            else if (keys.KeyMinLength < 0 || keys.KeyMaxLength < 0 || (keys.KeyMaxLength > 0 && keys.KeyMaxLength < Math.Max(1, keys.KeyMinLength)))
+            {
+                errors.Add($"{key}: [KeySet] needs KeyMaxLength of at least 1 and at least KeyMinLength; it has {keys.KeyMinLength} and {keys.KeyMaxLength}.");
+            }
+
+            (minKeys, maxKeys) = (keys.MinKeys, keys.MaxKeys);
+            keyMinLength = keys.KeyMinLength > 0 ? keys.KeyMinLength : null;
+            keyMaxLength = keys.KeyMaxLength > 0 ? keys.KeyMaxLength : null;
+        }
+        else if (type == VarType.KeySet)
+        {
+            (minKeys, maxKeys) = (1, 2);
+        }
+
+        var deprecated = Deprecation(prop, key, required, errors);
+        var examples = prop.GetCustomAttribute<ExamplesAttribute>()?.Values;
+        if (examples is not null && secret)
+        {
+            errors.Add($"{key}: a secret has no examples; remove [Examples].");
+            examples = null;
+        }
+
         string? pattern = FullMatch(prop.GetCustomAttribute<RegularExpressionAttribute>()?.Pattern);
         if (pattern is not null && NonRe2().IsMatch(pattern))
         {
@@ -420,12 +472,20 @@ public static partial class ContractReader
             Encoding = encoding,
             Separator = separator,
             Schema = json ? SchemaGenerator.For(clr) : null,
+            MinKeys = minKeys,
+            MaxKeys = maxKeys,
+            KeyMinLength = keyMinLength,
+            KeyMaxLength = keyMaxLength,
+            Deprecated = deprecated,
+            Group = GroupOf(prop),
+            Examples = examples,
             PropertyPath = path,
             ClrType = prop.PropertyType,
         };
 
         var initial = instance is null ? null
             : json ? (prop.GetValue(instance) is { } structured ? JsonVar.ToNode(structured, clr) : null)
+            : type == VarType.KeySet ? (prop.GetValue(instance) is KeySet { Count: > 0 } ? "keys" : null)
             : Normalize(prop.GetValue(instance), clr);
         bool isUnsetValueType = clr.IsValueType && Nullable.GetUnderlyingType(prop.PropertyType) is null
             && Equals(prop.GetValue(instance ?? Activator.CreateInstance(prop.DeclaringType!)), Activator.CreateInstance(clr));
@@ -440,7 +500,12 @@ public static partial class ContractReader
             spec.Required = false;
         }
 
-        if (secret && spec.Default is not null)
+        if (type == VarType.KeySet && spec.Default is not null)
+        {
+            errors.Add($"{key}: a KeySet is secret and cannot have a default. Remove the initializer.");
+            spec.Default = null;
+        }
+        else if (secret && spec.Default is not null)
         {
             errors.Add($"{key}: a [Secret] value cannot have a default. Remove the initializer.");
             spec.Default = null;
@@ -493,6 +558,11 @@ public static partial class ContractReader
             Misfit("AllowedValues", clr.IsEnum ? "string properties; a C# enum already limits the values to its members" : "string properties");
         }
 
+        if (type == VarType.KeySet && prop.GetCustomAttribute<ItemLengthAttribute>() is not null)
+        {
+            Misfit("ItemLength", "lists of strings; bound a key set's keys with [KeySet(KeyMinLength = ..., KeyMaxLength = ...)]");
+        }
+
         if (prop.GetCustomAttribute<RangeAttribute>() is not null && type is not (VarType.Int or VarType.Float or VarType.Duration))
         {
             Misfit("Range", "numbers and TimeSpan");
@@ -514,7 +584,7 @@ public static partial class ContractReader
         {
             if (type is not (VarType.String or VarType.Url or VarType.List))
             {
-                Misfit(name, "strings, urls and lists");
+                Misfit(name, type == VarType.KeySet ? "strings, urls and lists; bound a key set with [KeySet(MinKeys = ..., MaxKeys = ...)]" : "strings, urls and lists");
             }
         }
     }
@@ -545,16 +615,24 @@ public static partial class ContractReader
             errors.Add($"{key}: PathEnv '{attr.PathEnv}' must be UPPER_SNAKE_CASE.");
         }
 
-        if (attr.Reload == Reload.Watch && attr is ConfigFileAttribute or TextFileAttribute)
+        // A ConfigFile<T> property reloads its file; a plain property of the bound type holds what was read at startup.
+        var watched = prop.PropertyType.IsGenericType && prop.PropertyType.GetGenericTypeDefinition() == typeof(ConfigFile<>)
+            ? prop.PropertyType.GetGenericArguments()[0]
+            : null;
+        if (attr.Reload == Reload.Watch && ((attr is ConfigFileAttribute && watched is null) || attr is TextFileAttribute))
         {
             // Their content is read once, when the options bind; claiming Watch would mislead the platform.
-            errors.Add($"{key}: Reload.Watch is not supported for [{attr.GetType().Name.Replace("Attribute", "", StringComparison.Ordinal)}] yet; use Reload.Restart so the platform rolls the pods when it changes.");
+            errors.Add(attr is ConfigFileAttribute
+                ? $"{key}: Reload.Watch needs a ConfigFile<{prop.PropertyType.Name}> property, whose Value reloads the file; a {prop.PropertyType.Name} property holds what was read at startup. Change the type, or use Reload.Restart so the platform rolls the pods when it changes."
+                : $"{key}: Reload.Watch is not supported for [TextFile] yet; use Reload.Restart so the platform rolls the pods when it changes.");
         }
 
         var (description, details) = DescriptionOf(prop, key, errors);
         bool required = prop.GetCustomAttribute<RequiredAttribute>() is not null;
         bool secret = prop.GetCustomAttribute<SecretAttribute>() is not null;
         long? maxSize = attr.MaxSize > 0 ? attr.MaxSize : null;
+        var deprecated = Deprecation(prop, key, required, errors);
+        var group = GroupOf(prop);
 
         void Expect(Type expected)
         {
@@ -567,17 +645,25 @@ public static partial class ContractReader
         FileSpec spec;
         switch (attr)
         {
-            case ConfigFileAttribute:
-                if (!IsComplex(prop.PropertyType))
+            case ConfigFileAttribute config:
+                var bound = watched ?? prop.PropertyType;
+                if (!IsComplex(bound))
                 {
-                    errors.Add($"{key}: a [ConfigFile] property must be a class the JSON file deserializes into.");
+                    errors.Add($"{key}: a [ConfigFile] property must be a class the file deserializes into, or a ConfigFile<T> of one.");
+                }
+
+                var format = config.Format ?? Runtime.StructuredFile.FormatOf(attr.Path);
+                if (format is not ("json" or "yaml" or "toml"))
+                {
+                    errors.Add($"{key}: [ConfigFile] Format must be json, yaml or toml, not '{format}'.");
                 }
 
                 spec = new FileSpec
                 {
-                    Name = name, Type = FileType.Config, Format = "json", Description = description, Details = details, Required = required, Secret = secret,
+                    Name = name, Type = FileType.Config, Format = format, Description = description, Details = details, Required = required, Secret = secret,
                     Path = attr.Path, PathEnv = attr.PathEnv, Reload = attr.Reload, MaxSize = maxSize,
-                    Schema = SchemaGenerator.For(prop.PropertyType), PropertyPath = path,
+                    Schema = SchemaGenerator.For(bound), PropertyPath = path, WatchedType = watched,
+                    Deprecated = deprecated, Group = group,
                 };
                 break;
 
@@ -597,6 +683,7 @@ public static partial class ContractReader
                         ? null
                         : Enum.GetValues<KeyAlgorithms>().Where(a => a != KeyAlgorithms.Any && tls.KeyAlgorithms.HasFlag(a)).Select(a => a.ToString()).ToList(),
                     MinRemaining = tls.MinRemaining, RequireCA = tls.RequireCA, PropertyPath = path,
+                    Deprecated = deprecated, Group = group,
                 };
                 break;
 
@@ -607,6 +694,7 @@ public static partial class ContractReader
                     Name = name, Type = FileType.CaBundle, Description = description, Details = details, Required = required, Secret = secret,
                     Path = attr.Path, PathEnv = attr.PathEnv, Reload = attr.Reload, MaxSize = maxSize,
                     MinCertificates = ca.MinCertificates == 1 ? null : ca.MinCertificates, PropertyPath = path,
+                    Deprecated = deprecated, Group = group,
                 };
                 break;
 
@@ -616,6 +704,7 @@ public static partial class ContractReader
                 {
                     Name = name, Type = FileType.Keystore, Format = "pkcs12", Description = description, Details = details, Required = required, Secret = true,
                     Path = attr.Path, PathEnv = attr.PathEnv, Reload = attr.Reload, MaxSize = maxSize, PropertyPath = path,
+                    Deprecated = deprecated, Group = group,
                 };
                 if (ks.PasswordProperty is not null)
                 {
@@ -643,6 +732,7 @@ public static partial class ContractReader
                     Path = attr.Path, PathEnv = attr.PathEnv, Reload = attr.Reload, MaxSize = maxSize,
                     Pattern = text.Pattern, MinLength = text.MinLength > 0 ? text.MinLength : null,
                     MaxLength = text.MaxLength > 0 ? text.MaxLength : null, PropertyPath = path,
+                    Deprecated = deprecated, Group = group,
                 };
                 break;
 
@@ -652,6 +742,7 @@ public static partial class ContractReader
                 {
                     Name = name, Type = FileType.Binary, Description = description, Details = details, Required = required, Secret = secret,
                     Path = attr.Path, PathEnv = attr.PathEnv, Reload = attr.Reload, MaxSize = maxSize, PropertyPath = path,
+                    Deprecated = deprecated, Group = group,
                 };
                 break;
 
@@ -668,9 +759,13 @@ public static partial class ContractReader
 
     private static void ResolveKeystorePasswords(ContractModel model, List<(FileSpec Spec, string Owner, string PasswordKey, Type DeclaringType)> pending, List<string> errors)
     {
-        foreach (var (spec, owner, passwordKey, _) in pending)
+        foreach (var (spec, owner, passwordKey, declaringType) in pending)
         {
-            var password = model.Vars.Values.FirstOrDefault(v => v.ConfigKey == passwordKey);
+            // The property next to the keystore, by its C# name, even when [ConfigurationKeyName] renames its key.
+            var property = passwordKey[(passwordKey.LastIndexOf(':') + 1)..];
+            var password = model.Vars.Values.FirstOrDefault(v => v.PropertyPath?[^1] is { } p && p.Name == property && p.DeclaringType == declaringType
+                    && v.ConfigKey[..Math.Max(0, v.ConfigKey.LastIndexOf(':'))] == passwordKey[..Math.Max(0, passwordKey.LastIndexOf(':'))])
+                ?? model.Vars.Values.FirstOrDefault(v => v.ConfigKey == passwordKey);
             if (password is null)
             {
                 errors.Add($"{owner}: PasswordProperty points at {passwordKey}, which is not a string property in the contract.");
@@ -686,10 +781,62 @@ public static partial class ContractReader
             {
                 Name = spec.Name, Type = spec.Type, Format = spec.Format, Description = spec.Description, Details = spec.Details, Required = spec.Required,
                 Secret = spec.Secret, Path = spec.Path, PathEnv = spec.PathEnv, Reload = spec.Reload, MaxSize = spec.MaxSize,
+                Deprecated = spec.Deprecated, Group = spec.Group,
                 PasswordVar = password.Name, PropertyPath = spec.PropertyPath, PasswordPath = password.PropertyPath,
             };
         }
     }
+
+    /// <summary>
+    /// <see cref="DeprecatedAttribute"/> as the contract's <c>deprecated</c> (SPEC §4.2): the message not blank and at
+    /// most 500 characters, and never on a required input, since the platform could not stop setting it.
+    /// </summary>
+    private static DeprecationSpec? Deprecation(PropertyInfo prop, string key, bool required, List<string> errors)
+    {
+        if (prop.GetCustomAttribute<DeprecatedAttribute>() is not { } deprecated)
+        {
+            return null;
+        }
+
+        if (DeprecationProblem(deprecated.Message, deprecated.ReplacedBy) is { } problem)
+        {
+            errors.Add($"{key}: [Deprecated] {problem}.");
+            return null;
+        }
+
+        if (required)
+        {
+            errors.Add($"{key}: a [Required] input cannot be [Deprecated]: the platform could not stop setting it. Make it optional first.");
+            return null;
+        }
+
+        return new DeprecationSpec(deprecated.Message, deprecated.ReplacedBy);
+    }
+
+    /// <summary>What is wrong with a deprecation message or replacement, or null.</summary>
+    internal static string? DeprecationProblem(string? message, string? replacedBy) =>
+        string.IsNullOrWhiteSpace(message) ? "needs a message that is not blank: what to use instead, or why the input is going away"
+        : XmlDocs.CodePoints(message) > 500 ? $"message is {XmlDocs.CodePoints(message)} characters, above 500"
+        : replacedBy is { Length: 0 } ? "ReplacedBy must name an input, or be left out"
+        : null;
+
+    /// <summary>A deprecated input's <c>replacedBy</c> names another input of the contract.</summary>
+    private static void CheckReplacements(ContractModel model, List<string> errors)
+    {
+        var replacements = model.Vars.Values.Select(v => (v.Name, v.Deprecated))
+            .Concat(model.Files.Values.Select(f => (f.Name, f.Deprecated)));
+        foreach (var (name, deprecated) in replacements)
+        {
+            if (deprecated?.ReplacedBy is { } by && (by == name || !(model.Vars.ContainsKey(by) || model.Files.ContainsKey(by))))
+            {
+                errors.Add($"{name}: [Deprecated] ReplacedBy '{by}' must name another variable or file input of the contract.");
+            }
+        }
+    }
+
+    /// <summary>The docs group, from <c>[Display(GroupName = "...")]</c>.</summary>
+    private static string? GroupOf(PropertyInfo prop) =>
+        prop.GetCustomAttribute<DisplayAttribute>()?.GroupName is { Length: > 0 } group ? group : null;
 
     /// <summary>
     /// An input's description and details (SPEC §14.7): the description from <c>[Description]</c> (or
@@ -833,7 +980,62 @@ public static partial class ContractReader
     /// [RegularExpression] must match the whole value, while a contract pattern (like CUE's =~ and JSON Schema's
     /// pattern) matches anywhere in it. Anchoring keeps the platform and the app agreeing on what is valid.
     /// </summary>
-    internal static string? FullMatch(string? pattern) => pattern is null ? null : $"^(?:{pattern})$";
+    internal static string? FullMatch(string? pattern) =>
+        pattern is null ? null : IsAnchored(pattern) ? pattern : $"^(?:{pattern})$";
+
+    /// <summary>
+    /// Whether a pattern already matches only whole values: it starts with <c>^</c>, ends with an unescaped <c>$</c>,
+    /// and has no <c>|</c> outside groups and classes, so <c>^a$|^b$</c> and <c>^a|b$</c> are still wrapped.
+    /// </summary>
+    private static bool IsAnchored(string pattern)
+    {
+        if (pattern.Length < 2 || pattern[0] != '^' || pattern[^1] != '$')
+        {
+            return false;
+        }
+
+        int depth = 0;
+        bool inClass = false;
+        for (int i = 0; i < pattern.Length; i++)
+        {
+            char c = pattern[i];
+            if (c == '\\')
+            {
+                if (i == pattern.Length - 2)
+                {
+                    return false; // the final $ is escaped
+                }
+
+                i++;
+            }
+            else if (inClass)
+            {
+                inClass = c != ']';
+            }
+            else if (c == '[')
+            {
+                inClass = true;
+                if (i + 1 < pattern.Length && pattern[i + 1] == ']')
+                {
+                    i++;
+                }
+            }
+            else if (c == '(')
+            {
+                depth++;
+            }
+            else if (c == ')')
+            {
+                depth--;
+            }
+            else if (c == '|' && depth == 0)
+            {
+                return false;
+            }
+        }
+
+        return depth == 0 && !inClass;
+    }
 
     internal static string Kebab(string pascal) =>
         string.Concat(pascal.Select((c, i) => char.IsUpper(c) ? (i > 0 ? "-" : "") + char.ToLowerInvariant(c) : c.ToString()));

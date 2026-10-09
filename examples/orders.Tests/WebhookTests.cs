@@ -16,7 +16,7 @@ public sealed class WebhookTests
         new() { ["ORDERS__DATABASEURL"] = "postgres://u:p@db/orders", ["WEBHOOK_KEYS"] = keys };
 
     /// <summary>Loads WEBHOOK_KEYS as the service does at startup.</summary>
-    private static List<string>? Keys(string value) => DocuconfTesting.Load<OrdersOptions>(Environment(value)).WebhookKeys;
+    private static KeySet? Keys(string value) => DocuconfTesting.Load<OrdersOptions>(Environment(value)).WebhookKeys;
 
     // A key rotation: each step is a rollout with a new WEBHOOK_KEYS, and a webhook signed with the key in use always
     // verifies.
@@ -41,7 +41,7 @@ public sealed class WebhookTests
         Assert.False(Webhook.Verify(null, Body, Sign(OldKey))); // no keys configured
     }
 
-    // The key set's constraints catch an empty or truncated key, and a third key, at startup, without printing any key.
+    // The key set's bounds catch an empty or truncated key, and a third key, at startup, without printing any key.
     [Theory]
     [InlineData(",", "out_of_range")]                      // an empty second key
     [InlineData(",nnnnnnnnnn", "out_of_range")]           // a truncated key

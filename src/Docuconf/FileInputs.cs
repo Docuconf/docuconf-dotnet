@@ -94,6 +94,92 @@ public sealed class Keystore
     public X509Certificate2 Load(string? password) => Pkcs12Loader.Load(File.ReadAllBytes(Path), password);
 }
 
+/// <summary>
+/// A config file declared with <see cref="Reload.Watch"/> (SPEC §4.6.2): <see cref="Value"/> reloads it when the
+/// mounted file changes. Declare the property as <c>ConfigFile&lt;Routes&gt;</c> with <see cref="ConfigFileAttribute"/>;
+/// the contract's schema comes from <typeparamref name="T"/>.
+/// </summary>
+/// <remarks>
+/// The file is checked at startup like any config file. A changed file is reread at most every 10 seconds, when
+/// <see cref="Value"/> is read; one that no longer parses or binds is ignored, and the last good value stays.
+/// </remarks>
+/// <typeparam name="T">The type the file deserializes into.</typeparam>
+public sealed class ConfigFile<T>
+    where T : class
+{
+    private static readonly TimeSpan Interval = TimeSpan.FromSeconds(10);
+    private readonly object _gate = new();
+    private readonly Func<object?>? _reload;
+    private T? _value;
+    private DateTime _stamp;
+    private DateTime _nextCheck;
+
+    /// <summary>A config file that is not loaded: <see cref="Present"/> is false until docuconf binds it.</summary>
+    public ConfigFile()
+    {
+    }
+
+    internal ConfigFile(string path, object? initial, Func<object?> reload)
+    {
+        Path = path;
+        _value = (T?)initial;
+        _reload = reload;
+        _stamp = Stamp(path);
+        _nextCheck = DateTime.UtcNow + Interval;
+    }
+
+    /// <summary>Where the file is read from.</summary>
+    public string Path { get; } = "";
+
+    /// <summary>Whether the file was found at startup. A required file is always present once startup succeeds.</summary>
+    public bool Present => _reload is not null;
+
+    /// <summary>The file's current content, reloaded when the file changes; null for an absent optional file.</summary>
+    public T? Value
+    {
+        get
+        {
+            if (_reload is null)
+            {
+                return null;
+            }
+
+            lock (_gate)
+            {
+                var now = DateTime.UtcNow;
+                if (now >= _nextCheck)
+                {
+                    _nextCheck = now + Interval;
+                    // Kubernetes swaps a ..data symlink, so compare the file's own timestamp.
+                    var stamp = Stamp(Path);
+                    if (stamp != _stamp && _reload() is T reloaded)
+                    {
+                        _value = reloaded;
+                        _stamp = stamp;
+                    }
+                }
+
+                return _value;
+            }
+        }
+    }
+
+    private static DateTime Stamp(string path)
+    {
+        try
+        {
+            return File.GetLastWriteTimeUtc(path);
+        }
+        catch (IOException)
+        {
+            return default;
+        }
+    }
+
+    /// <summary>Returns the file's path; the content may be secret.</summary>
+    public override string ToString() => $"ConfigFile<{typeof(T).Name}>({Path})";
+}
+
 /// <summary>A mounted binary file.</summary>
 public sealed class BinaryFile
 {

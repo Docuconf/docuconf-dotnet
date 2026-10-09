@@ -15,11 +15,19 @@ namespace Docuconf;
 /// <c>cue export contract.cue --out json</c>, or to check an environment against another app's contract.
 /// </summary>
 /// <remarks>
-/// Every wire encoding of SPEC §5 is parsed: lists as <c>csv</c> (with the contract's <c>separator</c>), <c>json</c> or
-/// <c>indexed</c> (<c>NAME__0</c>, <c>NAME__1</c>, ...), durations as <c>go</c>, <c>iso8601</c>, <c>seconds</c> or
-/// <c>timespan</c>. Values are checked with the same parsers and constraint checks as declared options. The mode
-/// covers variables, with the defaults of the profile the contract's selector picks: <c>json</c> values are parsed
-/// but not checked against their JSON Schema, and file inputs and overlays are not read.
+/// <para>
+/// Every wire encoding of SPEC §5 is parsed: lists and key sets as <c>csv</c> (with the contract's <c>separator</c>),
+/// <c>json</c> or <c>indexed</c> (<c>NAME__0</c>, <c>NAME__1</c>, ...), durations as <c>go</c>, <c>iso8601</c>,
+/// <c>seconds</c> or <c>timespan</c>. Values are checked with the same parsers and constraint checks as declared
+/// options, and <c>json</c> values against their JSON Schema (draft 2020-12).
+/// </para>
+/// <para>
+/// Values are layered as a host with config files layers them (SPEC §4.4, §4.7): the variable's default, then the
+/// default of the profile the contract's selector picks, then each config-file overlay, then the environment. File
+/// inputs and overlays are read from their paths under <c>DOCUCONF_FILE_ROOT</c> (or
+/// <see cref="DocuconfSettings.FileRoot"/>), and checked as declared ones are; a <c>config</c> file in json, yaml or
+/// toml is checked against its JSON Schema.
+/// </para>
 /// </remarks>
 /// <example>
 /// <code>
@@ -47,27 +55,71 @@ public sealed class DocuconfContract
     /// Validates <paramref name="environment"/> (the process environment when null) and returns the typed values and
     /// every violation. Variables the contract does not declare are ignored.
     /// </summary>
-    public ContractLoadResult Validate(IReadOnlyDictionary<string, string>? environment = null)
+    public ContractLoadResult Validate(IReadOnlyDictionary<string, string>? environment = null) => Validate(environment, null);
+
+    /// <summary>
+    /// Validates <paramref name="environment"/> (the process environment when null) with <paramref name="settings"/>:
+    /// its <see cref="DocuconfSettings.FileRoot"/> and <see cref="DocuconfSettings.Clock"/>. The typed values include
+    /// each file input, by name: a <c>config</c> file's data as a <see cref="JsonNode"/>, a <c>text</c> file's text,
+    /// and a <see cref="TlsKeyPair"/>, <see cref="CaBundle"/>, <see cref="Keystore"/> or <see cref="BinaryFile"/>.
+    /// </summary>
+    public ContractLoadResult Validate(IReadOnlyDictionary<string, string>? environment, DocuconfSettings? settings)
     {
         environment ??= ProcessEnvironment();
+        var root = settings?.FileRoot ?? (environment.TryGetValue("DOCUCONF_FILE_ROOT", out var r) ? r : "");
+        var violations = new List<Violation>();
+        var warnings = new List<string>();
 
-        // The selected profile's defaults (SPEC §4.4) stand in for the variables' own; the environment overrides both.
-        IReadOnlyDictionary<string, object>? profileDefaults = null;
+        // Below the environment: the selected profile's defaults (SPEC §4.4), then the overlays (SPEC §4.7).
+        var layers = new Dictionary<string, Layer>(StringComparer.Ordinal);
         if (Model.Profiles is { } profiles)
         {
-            var profile = environment.TryGetValue(profiles.Selector, out var selected) && selected.Length > 0 ? selected : profiles.Default;
-            profileDefaults = profiles.Defaults.GetValueOrDefault(profile);
+            foreach (var (name, value) in profiles.Defaults.GetValueOrDefault(SelectedProfile(profiles, environment)) ?? [])
+            {
+                layers[name] = Layer.Profile(value);
+            }
         }
+
+        Overlays.Load(Model, root, layers, violations, warnings);
 
         var values = new Dictionary<string, object?>(StringComparer.Ordinal);
-        var violations = new List<Violation>();
         foreach (var spec in Model.Vars.Values)
         {
-            values[spec.Name] = ContractFirstLoader.Load(spec, profileDefaults?.GetValueOrDefault(spec.Name), environment, violations);
+            values[spec.Name] = ContractFirstLoader.Load(spec, layers.GetValueOrDefault(spec.Name), environment, violations, out var set);
+            if (set && spec.Deprecated is { } deprecation)
+            {
+                warnings.Add(DeprecationWarning(spec.Name, deprecation));
+            }
         }
 
-        return new ContractLoadResult(new ContractValues(values, Model), violations);
+        string? Password(string name) =>
+            values.GetValueOrDefault(name) as string ?? (environment.TryGetValue(name, out var raw) ? raw : null);
+        var now = settings?.Clock() ?? DateTimeOffset.UtcNow;
+        foreach (var (name, value) in FileChecks.LoadContract(Model, n => environment.GetValueOrDefault(n), root, now, Password, violations))
+        {
+            values[name] = value;
+            if (value is not null && Model.Files[name].Deprecated is { } deprecation)
+            {
+                warnings.Add(DeprecationWarning(name, deprecation));
+            }
+        }
+
+        return new ContractLoadResult(new ContractValues(values, Model), violations) { Warnings = warnings };
     }
+
+    /// <summary>
+    /// The profile in effect (SPEC §4.4): the selector's value when the environment sets it, read as the selector's
+    /// type reads it (for a string, the empty string is a value), or <c>profiles.default</c>.
+    /// </summary>
+    private string SelectedProfile(ProfilesSpec profiles, IReadOnlyDictionary<string, string> environment) =>
+        environment.TryGetValue(profiles.Selector, out var selected)
+        && (selected.Length > 0 || Model.Vars.GetValueOrDefault(profiles.Selector)?.Type == VarType.String)
+            ? selected
+            : profiles.Default;
+
+    private static string DeprecationWarning(string input, DeprecationSpec deprecation) =>
+        $"docuconf: warning: {input} is deprecated but still set: {deprecation.Message}"
+        + (deprecation.ReplacedBy is { } by ? $" (replaced by {by})" : "");
 
     /// <summary>
     /// Validates <paramref name="environment"/> (the process environment when null) and returns the typed values.
@@ -77,7 +129,8 @@ public sealed class DocuconfContract
     /// </exception>
     public ContractValues Load(IReadOnlyDictionary<string, string>? environment = null, DocuconfSettings? settings = null)
     {
-        var result = Validate(environment);
+        var result = Validate(environment, settings);
+        Warn(settings, result);
         if (result.Violations.Count > 0)
         {
             var lines = result.Violations.Select(v => v.ToString()).ToList();
@@ -102,7 +155,8 @@ public sealed class DocuconfContract
             settings.Error.WriteLine(hint);
         }
 
-        var result = Validate(environment);
+        var result = Validate(environment, settings);
+        Warn(settings, result);
         if (!result.IsValid)
         {
             DocuconfStartup.Report(settings, result.Violations.Select(v => v.ToString()).ToList());
@@ -117,18 +171,32 @@ public sealed class DocuconfContract
         return result.Values;
     }
 
+    private static void Warn(DocuconfSettings? settings, ContractLoadResult result)
+    {
+        foreach (var warning in result.Warnings)
+        {
+            (settings?.Error ?? Console.Error).WriteLine(warning);
+        }
+    }
+
     private static Dictionary<string, string> ProcessEnvironment() =>
         Environment.GetEnvironmentVariables().Cast<DictionaryEntry>()
             .ToDictionary(e => (string)e.Key, e => (string?)e.Value ?? "", StringComparer.Ordinal);
 }
 
-/// <summary>The outcome of <see cref="DocuconfContract.Validate"/>.</summary>
+/// <summary>The outcome of <see cref="DocuconfContract.Validate(IReadOnlyDictionary{string, string}?, DocuconfSettings?)"/>.</summary>
 /// <param name="Values">The typed values; a variable with a violation is null.</param>
 /// <param name="Violations">Every violation, with its SPEC §11.2 code. Messages never contain secret values.</param>
 public sealed record ContractLoadResult(ContractValues Values, IReadOnlyList<Violation> Violations)
 {
     /// <summary>Whether the environment satisfies the contract.</summary>
     public bool IsValid => Violations.Count == 0;
+
+    /// <summary>
+    /// Warnings that are not violations, one line each: a deprecated input that is still set (SPEC §4.2), a variable
+    /// set in two overlays. They name inputs, never values. <see cref="DocuconfContract.Load"/> writes them to stderr.
+    /// </summary>
+    public IReadOnlyList<string> Warnings { get; init; } = [];
 }
 
 /// <summary>Thrown by <see cref="DocuconfContract.Load"/> when the environment violates the contract.</summary>
@@ -143,7 +211,8 @@ public sealed class ContractValidationException(IReadOnlyList<Violation> violati
 /// Typed values by variable name: <see cref="string"/> for <c>string</c> and <c>enum</c>, <see cref="long"/> for
 /// <c>int</c>, <see cref="double"/> for <c>float</c>, <see cref="bool"/>, <see cref="TimeSpan"/> for <c>duration</c>,
 /// <see cref="Uri"/> for <c>url</c>, <c>IReadOnlyList&lt;string&gt;</c> or <c>IReadOnlyList&lt;long&gt;</c> for
-/// <c>list</c>, and a <see cref="JsonNode"/> for <c>json</c>. An optional variable with no value and no default is null.
+/// <c>list</c>, a <see cref="KeySet"/> for <c>keySet</c>, and a <see cref="JsonNode"/> for <c>json</c>. File inputs are
+/// there too, by name. An optional input with no value and no default is null.
 /// <see cref="ToString"/> and the debugger show secret values as <c>***</c>.
 /// </summary>
 [DebuggerDisplay("Count = {Count}")]
@@ -163,7 +232,9 @@ public sealed class ContractValues : IReadOnlyDictionary<string, object?>
     internal ContractValues(IReadOnlyDictionary<string, object?> values, ContractModel? model)
     {
         this.values = values;
-        secrets = model?.Vars.Values.Where(v => v.Secret).Select(v => v.Name).ToHashSet(StringComparer.Ordinal) ?? [];
+        secrets = model?.Vars.Values.Where(v => v.Secret).Select(v => v.Name)
+            .Concat(model.Files.Values.Where(f => f.Secret).Select(f => f.Name))
+            .ToHashSet(StringComparer.Ordinal) ?? [];
         service = model?.Service ?? "";
     }
 
@@ -229,6 +300,7 @@ public sealed class ContractValues : IReadOnlyDictionary<string, object?>
     private static string Friendly(object value) => value switch
     {
         IReadOnlyList<long> => "IReadOnlyList<long>",
+        KeySet => "KeySet",
         IReadOnlyList<string> => "IReadOnlyList<string>",
         JsonNode => "JsonNode",
         _ => Friendly(value.GetType()),
@@ -288,15 +360,21 @@ public sealed class ContractValues : IReadOnlyDictionary<string, object?>
 /// <summary>Reads one variable of a contract from an environment.</summary>
 internal static partial class ContractFirstLoader
 {
-    [GeneratedRegex(@"^(?<name>[A-Z][A-Z0-9_]*)__(?<index>0|[1-9][0-9]*)$")]
+    [GeneratedRegex(@"^(?<name>[A-Z][A-Z0-9_]*)__(?<index>0|[1-9][0-9]*)\z")]
     private static partial Regex IndexedKey();
 
-    public static object? Load(VarSpec spec, object? profileDefault, IReadOnlyDictionary<string, string> env, List<Violation> violations)
+    /// <summary>
+    /// Reads one variable: from the environment when it is set there, else from the layer below it (an overlay value,
+    /// checked like an environment value, or a profile default), else its own default. <paramref name="set"/> says
+    /// whether the environment or an overlay set it.
+    /// </summary>
+    public static object? Load(VarSpec spec, Layer? layer, IReadOnlyDictionary<string, string> env, List<Violation> violations, out bool set)
     {
+        set = false;
         // Indexed lists arrive as NAME__0, NAME__1, ... and must be numbered from 0 with no gap (SPEC §5).
         List<string>? indexed = null;
         string? raw = null;
-        if (spec.Type == VarType.List && spec.Encoding == "indexed")
+        if (spec.IsListLike && spec.Encoding == "indexed")
         {
             var items = env
                 .Select(e => (Match: IndexedKey().Match(e.Key), e.Value))
@@ -318,9 +396,24 @@ internal static partial class ContractFirstLoader
 
         // Empty is unset for every type but string (SPEC §5).
         bool present = indexed is not null ? indexed.Count > 0 : raw is not null && (raw.Length > 0 || spec.Type == VarType.String);
+        string source = "";
+        if (!present && layer is { Bad: true })
+        {
+            return null; // the overlay value was reported already
+        }
+
+        if (!present && layer is { Raw: not null } or { Items: not null })
+        {
+            // An overlay value, as the wire string it stands for (SPEC §4.7); empty is unset, as in the environment.
+            (raw, indexed) = (layer.Raw, layer.Items is { } items ? [.. items] : null);
+            present = indexed is not null || raw!.Length > 0 || spec.Type == VarType.String;
+            source = $"in overlay {layer.Source}, ";
+        }
+
+        set = present;
         if (!present)
         {
-            if (profileDefault is not null)
+            if (layer?.Typed is { } profileDefault)
             {
                 return Output(spec, profileDefault);
             }
@@ -341,7 +434,7 @@ internal static partial class ContractFirstLoader
             return null;
         }
 
-        var problem = indexed is not null ? ParseList(spec, indexed, out var typed) : Parse(spec, raw!, out typed);
+        var problem = indexed is not null && spec.Type is not VarType.Json ? ParseList(spec, indexed, out var typed) : Parse(spec, raw!, out typed);
         if (problem is null && typed is not null)
         {
             // A json value's maxLength measures it as received (SPEC §4.3).
@@ -350,8 +443,8 @@ internal static partial class ContractFirstLoader
 
         if (problem is not null)
         {
-            bool show = !spec.Secret && raw is not null && spec.Type is not (VarType.List or VarType.Json);
-            violations.Add(new Violation(problem.Code, spec.Name, (show ? $"'{raw}' " : "") + problem.Message + (spec.Secret ? " (value redacted)" : "")));
+            bool show = !spec.Secret && raw is not null && spec.Type is not (VarType.List or VarType.Json or VarType.KeySet);
+            violations.Add(new Violation(problem.Code, spec.Name, source + (show ? $"'{raw}' " : "") + problem.Message + (spec.Secret ? " (value redacted)" : "")));
             return null;
         }
 
@@ -381,9 +474,9 @@ internal static partial class ContractFirstLoader
                 problem = WireFormat.ParseDuration(raw, spec.Encoding ?? "go", out var ts);
                 value = ts;
                 return problem;
-            case VarType.List when spec.Encoding == "json":
+            case VarType.List or VarType.KeySet when spec.Encoding == "json":
                 return ParseJsonList(spec, raw, out value);
-            case VarType.List:
+            case VarType.List or VarType.KeySet:
                 return ParseList(spec, raw.Split(spec.Separator ?? ",", StringSplitOptions.None), out value);
             case VarType.Json:
                 try
@@ -408,7 +501,7 @@ internal static partial class ContractFirstLoader
         var list = new List<object>(items.Count);
         for (int i = 0; i < items.Count; i++)
         {
-            if (spec.Items != "int")
+            if (spec.ItemType != "int")
             {
                 list.Add(items[i]);
             }
@@ -450,7 +543,7 @@ internal static partial class ContractFirstLoader
             int i = 0;
             foreach (var item in doc.RootElement.EnumerateArray())
             {
-                if (spec.Items == "int")
+                if (spec.ItemType == "int")
                 {
                     if (item.ValueKind != JsonValueKind.Number)
                     {
@@ -488,6 +581,7 @@ internal static partial class ContractFirstLoader
         null => null,
         string s when spec.Type == VarType.Duration => GoDuration.Parse(s),
         string s when spec.Type == VarType.Url => new Uri(s, UriKind.Absolute),
+        List<object> items when spec.Type == VarType.KeySet => new KeySet(items.Cast<string>()),
         List<object> items when spec.Items == "int" => items.Cast<long>().ToList().AsReadOnly(),
         List<object> items => items.Cast<string>().ToList().AsReadOnly(),
         _ => value,

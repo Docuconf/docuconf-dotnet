@@ -12,7 +12,7 @@ public static partial class CueWriter
 {
     private static readonly JsonSerializerOptions Json = new() { Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
 
-    [GeneratedRegex("^[A-Za-z_][A-Za-z0-9_]*$")]
+    [GeneratedRegex("^[A-Za-z_][A-Za-z0-9_]*\\z")]
     private static partial Regex Identifier();
 
     /// <summary>Generator details recorded in the contract's metadata.</summary>
@@ -53,7 +53,7 @@ public static partial class CueWriter
         w.Open("vars");
         foreach (var spec in model.Vars.Values)
         {
-            WriteVar(w, spec);
+            WriteVar(w, spec, overlays: model.Overlays.Count > 0);
         }
 
         w.Close();
@@ -80,9 +80,9 @@ public static partial class CueWriter
                     w.Field("description", Str(o.Description));
                 }
 
-                w.Field("format", Str("json"));
+                w.Field("format", Str(o.Format));
                 w.Field("path", Str(o.Path));
-                w.Field("keySeparator", Str(":"));
+                w.Field("keySeparator", Str(o.KeySeparator));
                 w.Field("reload", Str(o.ReloadOnChange ? "watch" : "restart"));
                 w.Close();
             }
@@ -115,7 +115,7 @@ public static partial class CueWriter
         return w;
     }
 
-    private static void WriteVar(Writer w, VarSpec v)
+    private static void WriteVar(Writer w, VarSpec v, bool overlays)
     {
         w.Open(v.Name);
         w.Field("type", Str(v.Type switch
@@ -128,13 +128,19 @@ public static partial class CueWriter
             VarType.Url => "url",
             VarType.Enum => "enum",
             VarType.Json => "json",
+            VarType.KeySet => "keySet",
             _ => "list",
         }));
         w.Field("description", Str(v.Description));
         if (v.Details is { } details) w.Field("details", Str(details));
         if (v.Required) w.Field("required", "true");
         if (v.Secret) w.Field("secret", "true");
-        if (v.ConfigKey.Length > 0) w.Field("configKey", Str(v.ConfigKey));
+        if (v.Group is { } group) w.Field("group", Str(group));
+        if (v.Examples is { Count: > 0 } examples) w.Field("examples", List(examples.Select(Str)));
+        if (v.Deprecated is { } deprecated) WriteDeprecated(w, deprecated);
+        // A configKey that is the variable's own name tells a reader nothing (SPEC §4.2), unless an overlay places the
+        // value there (SPEC §4.7).
+        if (v.ConfigKey.Length > 0 && (overlays || v.ConfigKey != v.Name)) w.Field("configKey", Str(v.ConfigKey));
         // The .NET configuration binder reads TimeSpan as hh:mm:ss and lists from indexed keys (NAME__0, NAME__1).
         if (v.Type == VarType.Duration) w.Field("encoding", Str(v.Encoding ?? "timespan"));
         if (v.Type == VarType.List)
@@ -142,6 +148,16 @@ public static partial class CueWriter
             w.Field("items", Str(v.Items!));
             w.Field("encoding", Str(v.Encoding ?? "indexed"));
             if (v.Separator is { } separator) w.Field("separator", Str(separator));
+        }
+
+        if (v.Type == VarType.KeySet)
+        {
+            w.Field("encoding", Str(v.Encoding ?? "csv"));
+            if ((v.Encoding ?? "csv") == "csv") w.Field("separator", Str(v.Separator ?? ","));
+            w.Field("minKeys", Num(v.MinKeys ?? 1));
+            w.Field("maxKeys", Num(v.MaxKeys ?? 2));
+            if (v.KeyMinLength is { } keyMinLength) w.Field("keyMinLength", Num(keyMinLength));
+            if (v.KeyMaxLength is { } keyMaxLength) w.Field("keyMaxLength", Num(keyMaxLength));
         }
 
         if (v.Values is { } values) w.Field("values", List(values.Select(Str)));
@@ -181,6 +197,8 @@ public static partial class CueWriter
         if (f.Secret && f.Type is not (FileType.Tls or FileType.Keystore)) w.Field("secret", "true");
         w.Field("path", Str(f.Path));
         if (f.PathEnv is { } pathEnv) w.Field("pathEnv", Str(pathEnv));
+        if (f.Group is { } group) w.Field("group", Str(group));
+        if (f.Deprecated is { } deprecated) WriteDeprecated(w, deprecated);
         if (f.Reload == Reload.Watch) w.Field("reload", Str("watch"));
         if (f.MaxSize is { } maxSize) w.Field("maxSize", Num(maxSize));
         if (f.DnsNames is { } dnsNames) w.Field("dnsNames", List(dnsNames.Select(Str)));
@@ -193,6 +211,14 @@ public static partial class CueWriter
         if (f.MinLength is { } minLength) w.Field("minLength", Num(minLength));
         if (f.MaxLength is { } maxLength) w.Field("maxLength", Num(maxLength));
         if (f.Schema is { } schema) w.Field("schema", Schema(schema, w.Depth));
+        w.Close();
+    }
+
+    private static void WriteDeprecated(Writer w, DeprecationSpec deprecated)
+    {
+        w.Open("deprecated");
+        w.Field("message", Str(deprecated.Message));
+        if (deprecated.ReplacedBy is { } by) w.Field("replacedBy", Str(by));
         w.Close();
     }
 

@@ -53,6 +53,24 @@
     <PackageReference Include="Microsoft.Extensions.Options.DataAnnotations" Version="10.0.12" />
   </ItemGroup>
 
+  <!--
+    Validates json values against their contract's JSON Schema in the contract-first mode (draft 2020-12). 8.0.x is
+    the last MIT-licensed major; later majors moved to a commercial licence.
+  -->
+  <ItemGroup>
+    <PackageReference Include="JsonSchema.Net" Version="8.0.5" />
+  </ItemGroup>
+
+  <!--
+    Config files and overlays in YAML and TOML (SPEC §4.6, §4.7), converted to JSON and checked like JSON ones.
+    YamlDotNet is MIT-licensed; Tomlyn 0.19 is BSD-2-Clause and, unlike its 2.x majors, ships no source generator into
+    the app's build.
+  -->
+  <ItemGroup>
+    <PackageReference Include="YamlDotNet" Version="16.3.0" />
+    <PackageReference Include="Tomlyn" Version="0.19.0" />
+  </ItemGroup>
+
   <ItemGroup>
     <InternalsVisibleTo Include="Docuconf.Tests" />
   </ItemGroup>

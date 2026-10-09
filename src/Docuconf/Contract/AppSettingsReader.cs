@@ -159,37 +159,11 @@ internal static class AppSettingsReader
             VarType.Int => Parsed(WireFormat.ParseInt(raw, out var l), raw, l),
             VarType.Float => Parsed(WireFormat.ParseFloat(raw, out var d), raw, d),
             VarType.Bool => Parsed(WireFormat.ParseBool(raw, out var b), raw, b),
-            VarType.Duration => GoDuration.Format(TimeSpanParser.Parse(raw)),
+            VarType.Duration => GoDuration.Format((TimeSpan)Parsed(WireFormat.ParseDuration(raw, "timespan", out var ts), raw, ts)),
             _ => raw,
         };
     }
 
     private static object Parsed(Problem? problem, string raw, object value) =>
         problem is null ? value : throw new FormatException($"'{raw}' {problem.Message}");
-}
-
-/// <summary>
-/// TimeSpan parsing for configuration values. Rejects bare numbers: <c>TimeSpan.Parse("30")</c> is 30 days,
-/// which is never what someone writing "30" meant.
-/// </summary>
-internal static class TimeSpanParser
-{
-    public static TimeSpan Parse(string raw) =>
-        TryParse(raw, out var value)
-            ? value
-            : throw new FormatException(raw.Contains(':', StringComparison.Ordinal)
-                ? $"'{raw}' is not a TimeSpan such as 00:01:30 or 1.02:03:04.5."
-                : $"'{raw}' is ambiguous as a TimeSpan; write it as hh:mm:ss, for example 00:00:30.");
-
-    /// <summary>
-    /// <c>[-][d.]hh:mm[:ss[.fffffff]]</c>, as <see cref="TimeSpan.Parse(string, IFormatProvider)"/> reads it with the
-    /// invariant culture, but without surrounding whitespace (values are never trimmed) and never a bare number.
-    /// </summary>
-    public static bool TryParse(string raw, out TimeSpan value)
-    {
-        value = default;
-        return raw.Contains(':', StringComparison.Ordinal)
-            && raw.Length > 0 && !char.IsWhiteSpace(raw[0]) && !char.IsWhiteSpace(raw[^1])
-            && TimeSpan.TryParse(raw, CultureInfo.InvariantCulture, out value);
-    }
 }

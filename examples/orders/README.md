@@ -22,7 +22,7 @@ The options bind from the `Orders` section, so each setting is an `ORDERS__*` en
 | `ORDERS__ALLOWEDORIGINS__0`, `__1`, ... | list of strings | at least 1 item; default `["http://localhost:3000"]` |
 | `ORDERS__REQUESTTIMEOUT` | duration, `hh:mm:ss` | `00:00:01`–`00:05:00`, default `00:00:30` |
 | `ORDERS__WORKERCOUNT` | int | 1–64, default `4` |
-| `WEBHOOK_KEYS` | list of strings, comma-separated (`[Csv]`) | secret, optional; 1–2 keys of 32–256 characters each |
+| `WEBHOOK_KEYS` | key set, comma-separated | secret, optional; 1–2 keys of 32–256 characters each |
 
 [`Orders.Api.csproj`](Orders.Api.csproj) builds against the SDK in this repository with a `ProjectReference`, adds
 the declaration analyzer, and re-exports `contract.cue` on every build (`DocuconfContractPath`).
@@ -58,9 +58,9 @@ In Kubernetes the same lines go to `/dev/termination-log`, so `kubectl describe 
 
 ## Rotate a key
 
-`WEBHOOK_KEYS` is a key set: `POST /webhooks/payments` accepts a body whose `X-Signature` header is the hex
-HMAC-SHA256 of the body under any key in the list ([`Webhook.cs`](Webhook.cs)). `[Csv]` makes the list one value,
-`old,new`, so one Kubernetes Secret key holds it:
+`WEBHOOK_KEYS` is a `KeySet`, the contract's `keySet` type: `POST /webhooks/payments` accepts a body whose
+`X-Signature` header is the hex HMAC-SHA256 of the body under any key in the set, which `KeySet.Verify` tries one by
+one ([`Webhook.cs`](Webhook.cs)). It is one value, `old,new`, so one Kubernetes Secret key holds it:
 
 ```yaml
 WEBHOOK_KEYS: # a key set: one Secret key holding "old,new" while rotating
@@ -68,20 +68,18 @@ WEBHOOK_KEYS: # a key set: one Secret key holding "old,new" while rotating
 ```
 
 A variable is read once, at start, so a new key reaches the service only when the pods restart; with two keys valid at
-once, no webhook is turned away while that happens:
-
-1. Add the new key as the second item (`old,new` in the Secret), and roll out.
-2. Switch the sender to the new key.
-3. Remove the old key (`new`), and roll out.
+once, no webhook is turned away while that happens. The generated docs ([`CONFIG.md`](CONFIG.md#webhook_keys)) give the
+three steps of a rotation for every key set: add the new key (`old,new` in the Secret) and roll out, switch the sender
+to it, then remove the old key (`new`) and roll out.
 
 The contract allows 1 or 2 keys of 32 to 256 characters each, so a trailing comma or a truncated key stops the service
-at startup instead of locking out the sender:
+at startup instead of locking out the sender, and the error never shows a key:
 
 ```console
 $ ORDERS__DATABASEURL=postgres://orders:pw@localhost:5432/orders \
     WEBHOOK_KEYS=old-webhook-key-0123456789abcdef0123, dotnet run
 docuconf: 1 configuration problem:
-  [out_of_range] WEBHOOK_KEYS: item 1 is 0 characters, below itemMinLength 32 (value redacted)
+  [out_of_range] WEBHOOK_KEYS: key 1 is empty (value redacted)
 ```
 
 [`WebhookTests.cs`](../orders.Tests/WebhookTests.cs) walks through a rotation, and [`smoke.sh`](smoke.sh) posts
@@ -119,7 +117,7 @@ $ docuconf docs contract.cue --format model -o docs.json
 ```
 
 `ORDERS__WORKERCOUNT` shows where the text comes from: the XML doc `<summary>` is its description, and the
-`<remarks>` its details. `WEBHOOK_KEYS`'s details carry its rotation steps as a numbered list.
+`<remarks>` its details. `WEBHOOK_KEYS` shows what the docs add on their own: as a key set, it gets the rotation steps.
 
 ## Deploy
 

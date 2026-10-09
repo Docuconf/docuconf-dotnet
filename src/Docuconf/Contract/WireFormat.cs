@@ -14,21 +14,30 @@ internal sealed record Problem(string Code, string Message);
 /// </summary>
 internal static partial class WireFormat
 {
-    [GeneratedRegex("^[+-]?[0-9]+$")]
+    [GeneratedRegex("^[+-]?[0-9]+\\z")]
     private static partial Regex IntegerSyntax();
 
     // The platform's own rule for a url literal (contract.cue, #Validate).
-    [GeneratedRegex(@"^[a-zA-Z][a-zA-Z0-9+.\-]*://[^\s]+$")]
+    [GeneratedRegex(@"^[a-zA-Z][a-zA-Z0-9+.\-]*://[^\s]+\z")]
     private static partial Regex UrlSyntax();
 
-    [GeneratedRegex(@"^P(?!$)(?:([0-9]+)D)?(?:T(?=[0-9])(?:([0-9]+)H)?(?:([0-9]+)M)?(?:([0-9]+(?:[.,][0-9]+)?)S)?)?$")]
+    // P[nD][T[nH][nM][nS]] (SPEC §5): at least one component, and one after a T; n may have a fraction after . or ,.
+    [GeneratedRegex(@"^P(?!\z)(?:([0-9]+(?:[.,][0-9]+)?)D)?(?:T(?=[0-9])(?:([0-9]+(?:[.,][0-9]+)?)H)?(?:([0-9]+(?:[.,][0-9]+)?)M)?(?:([0-9]+(?:[.,][0-9]+)?)S)?)?\z")]
     private static partial Regex Iso8601Syntax();
 
-    [GeneratedRegex(@"^[0-9]+(?:\.[0-9]+)?$")]
+    // A decimal float (SPEC §5): a digit on each side of the point; never hex, inf, nan, .5 or 5.
+    [GeneratedRegex(@"^[+-]?[0-9]+(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?\z")]
+    private static partial Regex FloatSyntax();
+
+    // [d.]hh:mm:ss[.f] (SPEC §5): hh below 24, mm and ss below 60, one to seven fraction digits, unsigned.
+    [GeneratedRegex(@"^(?:(?<d>[0-9]+)\.)?(?<h>[01]?[0-9]|2[0-3]):(?<m>[0-5][0-9]):(?<s>[0-5][0-9])(?:\.(?<f>[0-9]{1,7}))?\z")]
+    private static partial Regex TimespanSyntax();
+
+    [GeneratedRegex(@"^[0-9]+(?:\.[0-9]+)?\z")]
     private static partial Regex SecondsSyntax();
 
     // An indexed list item's suffix: a decimal index with no leading zero (SPEC §5). NAME__HOST is not an item.
-    [GeneratedRegex("^(?:0|[1-9][0-9]*)$")]
+    [GeneratedRegex("^(?:0|[1-9][0-9]*)\\z")]
     private static partial Regex IndexSyntax();
 
     /// <summary>Whether <paramref name="suffix"/> (the part after <c>NAME__</c>) is an indexed list item.</summary>
@@ -106,7 +115,8 @@ internal static partial class WireFormat
     public static Problem? ParseFloat(string raw, out double value)
     {
         const NumberStyles style = NumberStyles.AllowLeadingSign | NumberStyles.AllowDecimalPoint | NumberStyles.AllowExponent;
-        if (!double.TryParse(raw, style, CultureInfo.InvariantCulture, out value) || !double.IsFinite(value))
+        value = 0;
+        if (!FloatSyntax().IsMatch(raw) || !double.TryParse(raw, style, CultureInfo.InvariantCulture, out value) || !double.IsFinite(value))
         {
             return new Problem(Codes.InvalidType, "is not a finite number");
         }
@@ -150,7 +160,7 @@ internal static partial class WireFormat
             "go" => GoDuration.TryParse(raw, out value),
             "iso8601" => TryParseIso8601(raw, out value),
             "seconds" => TryParseSeconds(raw, out value),
-            "timespan" => TimeSpanParser.TryParse(raw, out value),
+            "timespan" => TryParseTimespan(raw, out value),
             _ => throw new ArgumentException($"Unknown duration encoding '{encoding}'.", nameof(encoding)),
         };
         return ok ? null : new Problem(Codes.InvalidType, $"is not a duration in the {encoding} encoding, such as {Example(encoding)}");
@@ -176,10 +186,39 @@ internal static partial class WireFormat
         try
         {
             decimal seconds = 0;
-            if (m.Groups[1].Success) seconds += decimal.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture) * 86400;
-            if (m.Groups[2].Success) seconds += decimal.Parse(m.Groups[2].Value, CultureInfo.InvariantCulture) * 3600;
-            if (m.Groups[3].Success) seconds += decimal.Parse(m.Groups[3].Value, CultureInfo.InvariantCulture) * 60;
-            if (m.Groups[4].Success) seconds += decimal.Parse(m.Groups[4].Value.Replace(',', '.'), CultureInfo.InvariantCulture);
+            decimal Part(int group) => decimal.Parse(m.Groups[group].Value.Replace(',', '.'), CultureInfo.InvariantCulture);
+            if (m.Groups[1].Success) seconds += Part(1) * 86400;
+            if (m.Groups[2].Success) seconds += Part(2) * 3600;
+            if (m.Groups[3].Success) seconds += Part(3) * 60;
+            if (m.Groups[4].Success) seconds += Part(4);
+            return TryFromSeconds(seconds, out value);
+        }
+        catch (OverflowException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// <c>[d.]hh:mm:ss[.f]</c>, exactly as SPEC §5 gives it: what <c>TimeSpan.Parse</c> reads, without its extra forms
+    /// (a sign, <c>hh:mm</c>, a bare number of days, surrounding whitespace).
+    /// </summary>
+    public static bool TryParseTimespan(string raw, out TimeSpan value)
+    {
+        value = default;
+        var m = TimespanSyntax().Match(raw);
+        if (!m.Success)
+        {
+            return false;
+        }
+
+        try
+        {
+            decimal seconds = int.Parse(m.Groups["h"].Value, CultureInfo.InvariantCulture) * 3600m
+                + int.Parse(m.Groups["m"].Value, CultureInfo.InvariantCulture) * 60m
+                + int.Parse(m.Groups["s"].Value, CultureInfo.InvariantCulture);
+            if (m.Groups["d"].Success) seconds += decimal.Parse(m.Groups["d"].Value, CultureInfo.InvariantCulture) * 86400m;
+            if (m.Groups["f"].Success) seconds += decimal.Parse("0." + m.Groups["f"].Value, CultureInfo.InvariantCulture);
             return TryFromSeconds(seconds, out value);
         }
         catch (OverflowException)

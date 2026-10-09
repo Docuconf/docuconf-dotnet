@@ -49,7 +49,7 @@ internal static class Constraints
                 int length = str.EnumerateRunes().Count();
                 if (spec.MinLength is int minLen && length < minLen) return OutOfRange($"is shorter than {minLen} characters");
                 if (spec.MaxLength is int maxLen && length > maxLen) return OutOfRange($"is longer than {maxLen} characters");
-                if (spec.Pattern is { } pattern && !Regex.IsMatch(str, pattern)) return new Problem(Codes.PatternMismatch, $"does not match {pattern}");
+                if (spec.Pattern is { } pattern && !Re2.IsMatch(pattern, str)) return new Problem(Codes.PatternMismatch, $"does not match {pattern}");
                 return null;
             case VarType.List when value is List<object> items:
                 for (int i = 0; i < items.Count; i++)
@@ -63,12 +63,30 @@ internal static class Constraints
                 if (spec.MinItems is int minItems && items.Count < minItems) return new Problem(Codes.TooFewItems, $"has {items.Count} items, fewer than {minItems}");
                 if (spec.MaxItems is int maxItems && items.Count > maxItems) return new Problem(Codes.TooManyItems, $"has {items.Count} items, more than {maxItems}");
                 return null;
+            case VarType.KeySet when value is List<object> keys:
+                // An empty key (a stray separator) is out of range whatever the bounds (SPEC §4.3). Never the key itself.
+                for (int i = 0; i < keys.Count; i++)
+                {
+                    int n = Length((string)keys[i]);
+                    if (n == 0) return OutOfRange($"key {i} is empty");
+                    if (spec.KeyMinLength is int keyMin && n < keyMin) return OutOfRange($"key {i} is {n} characters, below keyMinLength {keyMin}");
+                    if (spec.KeyMaxLength is int keyMax && n > keyMax) return OutOfRange($"key {i} is {n} characters, above keyMaxLength {keyMax}");
+                }
+
+                int minKeys = spec.MinKeys ?? 1, maxKeys = spec.MaxKeys ?? 2;
+                if (keys.Count < minKeys) return new Problem(Codes.TooFewItems, $"has {keys.Count} keys, fewer than minKeys {minKeys}");
+                if (keys.Count > maxKeys) return new Problem(Codes.TooManyItems, $"has {keys.Count} keys, more than maxKeys {maxKeys}");
+                return null;
             case VarType.Bool when value is bool:
                 return null;
             case VarType.Json when value is JsonNode node:
                 if (spec.MaxLength is not null && MaxLength(spec, wire ?? CompactJson.Write(node), "of JSON") is { } tooLongJson) return tooLongJson;
-                // A contract read from JSON has no .NET type to bind; its schema is the platform's to check.
-                return spec.ClrType is null ? null : JsonVar.Check(spec, node) is { } problem ? new Problem(Codes.SchemaMismatch, problem) : null;
+                // A declared value is checked by binding it to its .NET type; a contract read from JSON, which has no type,
+                // against the contract's JSON Schema.
+                var mismatch = spec.ClrType is not null ? JsonVar.Check(spec, node)
+                    : spec.Schema is not null ? JsonSchemaCheck.Check(spec, node)
+                    : null;
+                return mismatch is null ? null : new Problem(Codes.SchemaMismatch, mismatch);
             default:
                 return new Problem(Codes.InvalidType, $"is not a valid {spec.Type.ToString().ToLowerInvariant()}");
         }
