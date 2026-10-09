@@ -78,6 +78,28 @@ public sealed class OrdersOptions
     /// </remarks>
     [Range(1, 64)]
     public int WorkerCount { get; set; } = 4;
+
+    // A key set (SPEC §6.1): [Csv] makes the list one value, "old,new", so one Kubernetes Secret key holds it, and
+    // [EnvName] gives it a name of its own. No initializer: a [Secret] has no default.
+
+    /// <summary>Keys that verify the signature on incoming payment webhooks.</summary>
+    /// <remarks>
+    /// <para>
+    /// A webhook is accepted when it is signed with any key in the list, so the key can be rotated without turning
+    /// webhooks away. To rotate:
+    /// </para>
+    /// <list type="number">
+    /// <item><description>add the new key as the second item, and roll out;</description></item>
+    /// <item><description>switch the sender to the new key;</description></item>
+    /// <item><description>remove the old key, and roll out.</description></item>
+    /// </list>
+    /// <para>
+    /// Each key is 32 to 256 characters, so an empty or truncated key fails at boot. Without this variable, the service
+    /// rejects every webhook.
+    /// </para>
+    /// </remarks>
+    [Csv, EnvName("WEBHOOK_KEYS"), Secret, MinLength(1), MaxLength(2), ItemLength(32, 256)]
+    public List<string>? WebhookKeys { get; set; }
 }
 ```
 
@@ -185,7 +207,8 @@ dotnet out/Orders.Api.dll docuconf export contract.json          # JSON, for the
 `-` writes to stdout and `--format cue|json` picks the format. Any other `docuconf` command is a usage error, so a typo
 never starts the app. The contract includes the `appsettings.json` values that ship with the app as defaults, and
 `appsettings.{Environment}.json` values as profiles selected by `ASPNETCORE_ENVIRONMENT`. It records that .NET reads
-`TimeSpan` as `hh:mm:ss` and lists as `NAME__0`, `NAME__1`, so the platform renders values that way.
+`TimeSpan` as `hh:mm:ss` and lists as `NAME__0`, `NAME__1` (or `a,b` for a `[Csv]` list), so the platform renders
+values that way.
 
 ## 7. Deploy
 
@@ -232,7 +255,8 @@ fields. A value above its limit fails startup with `out_of_range`; a secret's er
 Values are read as the platform writes them (SPEC §5): integers in base 10,
 numbers with a `.` whatever the culture, `true`/`false`, URLs with a `scheme://`, and enum names exactly as declared.
 A list given as one value (`ORDERS__ALLOWEDORIGINS=a,b`) is `invalid_type` with the indexed form to use instead, and
-list items must be numbered from 0 with no gap.
+list items must be numbered from 0 with no gap. A list marked `[Csv]` is the other way round: one value, `a,b`, split
+on the separator exactly as given, so a trailing comma leaves an empty item for `[ItemLength]` to reject.
 
 | Attribute | Input |
 |---|---|
@@ -242,6 +266,7 @@ list items must be numbered from 0 with no gap.
 | `[EnvName("LOG_LEVEL")]` | Overrides the derived variable name. The app reads that variable, and the configuration path (for appsettings) when it is not set. |
 | `[ItemRange(0, 1023)]` on an `int[]`, `List<long>`, ... | Bounds every item of an integer list (`itemMin`/`itemMax`). |
 | `[ItemLength(2, 4)]` on a `string[]`, `List<string>`, ... | Bounds the length of every item of a string list, in characters (`itemMinLength`/`itemMaxLength`). |
+| `[Csv]` or `[Csv(";")]` on a list | The list is one value with its items joined by the separator (`encoding: csv`), instead of `NAME__0`, `NAME__1`, ... Use it when one Secret key holds the list, such as a key set rotated without downtime (SPEC §6.1); the example's `WebhookKeys` is one. |
 | `[MaxLength(200)]` with `[UrlSchemes]` or `[Url]` | Bounds a URL's length in characters (`maxLength`). |
 | `[JsonVar]` on a class | One variable holding JSON, checked against the class (see below). |
 | `[JsonVar(MaxLength = 256)]` | Bounds a `json` value's length in characters, measured as received (`maxLength`). |

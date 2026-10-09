@@ -49,4 +49,26 @@ public sealed class OrdersOptions
     /// </remarks>
     [Range(1, 64)]
     public int WorkerCount { get; set; } = 4;
+
+    // A key set (SPEC §6.1): [Csv] makes the list one value, "old,new", so one Kubernetes Secret key holds it, and
+    // [EnvName] gives it a name of its own. No initializer: a [Secret] has no default.
+
+    /// <summary>Keys that verify the signature on incoming payment webhooks.</summary>
+    /// <remarks>
+    /// <para>
+    /// A webhook is accepted when it is signed with any key in the list, so the key can be rotated without turning
+    /// webhooks away. To rotate:
+    /// </para>
+    /// <list type="number">
+    /// <item><description>add the new key as the second item, and roll out;</description></item>
+    /// <item><description>switch the sender to the new key;</description></item>
+    /// <item><description>remove the old key, and roll out.</description></item>
+    /// </list>
+    /// <para>
+    /// Each key is 32 to 256 characters, so an empty or truncated key fails at boot. Without this variable, the service
+    /// rejects every webhook.
+    /// </para>
+    /// </remarks>
+    [Csv, EnvName("WEBHOOK_KEYS"), Secret, MinLength(1), MaxLength(2), ItemLength(32, 256)]
+    public List<string>? WebhookKeys { get; set; }
 }

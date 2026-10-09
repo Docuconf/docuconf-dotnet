@@ -285,6 +285,11 @@ public sealed class DeclarationAnalyzer : DiagnosticAnalyzer
                 Misfit(itemLength, "ItemLength", "lists of strings, such as string[] or List<string>");
             }
 
+            if (Find(prop, "Docuconf.CsvAttribute") is { } csv && type != VarType.List)
+            {
+                Misfit(csv, "Csv", "lists, such as string[] or List<string>");
+            }
+
             if (type == VarType.Json && (IsScalar(clr) || clr.IsValueType))
             {
                 Misfit(Find(prop, "Docuconf.JsonVarAttribute")!, "JsonVar", "classes, lists and dictionaries a JSON value deserializes into");
