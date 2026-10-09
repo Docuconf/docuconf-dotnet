@@ -92,6 +92,7 @@ public sealed class RuntimeTests : IDisposable
         // The certificate has 90 days; 80 days on, 10 remain, short of the 720h (30 days) required.
         var ex = Fails(_files.Config(), _files.Now.AddDays(80));
         Assert.Equal(["certificate_expiring"], Codes(ex));
+
     }
 
     [Fact]
@@ -149,7 +150,8 @@ public sealed class RuntimeTests : IDisposable
     {
         _files.Write("/etc/gw/routes/routes.json", """{ "items": [ { "match": "/a", "upstream": "http://a", "weight": 3 } ] }""");
         var ex = Fails(_files.Config());
-        Assert.Equal(["file_malformed"], Codes(ex));
+        // The file parses, so it is well formed; it does not bind to Routes (SPEC §11.2 item 7).
+        Assert.Equal(["schema_mismatch"], Codes(ex));
     }
 
     [Fact]

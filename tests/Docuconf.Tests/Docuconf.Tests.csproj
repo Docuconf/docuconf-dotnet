@@ -6,6 +6,8 @@
     <OutputType>Exe</OutputType>
     <IsPackable>false</IsPackable>
     <NoWarn>$(NoWarn);CS1591</NoWarn>
+    <!-- The export fixture documents a setting with an XML doc comment, which the contract reads as its details. -->
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
   </PropertyGroup>
 
   <PropertyGroup>

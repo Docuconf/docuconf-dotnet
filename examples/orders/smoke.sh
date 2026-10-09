@@ -63,14 +63,14 @@ grep -q 'out_of_range' "$tmp/termination-log" || { echo "termination log not wri
 echo "bad env: exited 1 with:"
 sed 's/^/  /' "$tmp/bad.txt"
 
-# 3. A key set with an empty second key (a trailing comma): the item length
-# constraint fails it at startup, without printing the key.
+# 3. A key set with an empty second key (a trailing comma): an empty key is
+# always out of range, so it fails at startup, without printing the key.
 set +e
 ORDERS__PORT=$port ORDERS__DATABASEURL="$secret" WEBHOOK_KEYS="$old_key," dotnet "$app" >"$tmp/bad.txt" 2>&1
 code=$?
 set -e
 expected='docuconf: 1 configuration problem:
-  [out_of_range] WEBHOOK_KEYS: item 1 is 0 characters, below itemMinLength 32 (value redacted)'
+  [out_of_range] WEBHOOK_KEYS: key 1 is empty (value redacted)'
 if [ "$code" != 1 ] || [ "$(cat "$tmp/bad.txt")" != "$expected" ] || grep -q webhook-key "$tmp/bad.txt"; then
   echo "want exit 1 for an empty webhook key, got $code:" >&2; diff <(echo "$expected") "$tmp/bad.txt" >&2; exit 1
 fi

@@ -155,6 +155,55 @@ public sealed class CsvAttribute(string separator = ",") : Attribute
     public string Separator { get; } = separator;
 }
 
+/// <summary>
+/// Bounds a <see cref="KeySet"/> property: the contract's <c>minKeys</c>, <c>maxKeys</c>, <c>keyMinLength</c> and
+/// <c>keyMaxLength</c> (SPEC §4.3). Without it a key set holds 1 or 2 keys of any length but zero. A number of keys
+/// outside the bounds is <c>too_few_items</c> or <c>too_many_items</c> at startup; a key outside the lengths, or an
+/// empty key, is <c>out_of_range</c>. Lengths count characters (Unicode scalar values).
+/// </summary>
+/// <example><code>[KeySet(KeyMinLength = 32, KeyMaxLength = 256)] public KeySet? WebhookKeys { get; set; }</code></example>
+[AttributeUsage(AttributeTargets.Property)]
+public sealed class KeySetAttribute : Attribute
+{
+    /// <summary>The fewest keys; 1 by default, and at least 1.</summary>
+    public int MinKeys { get; init; } = 1;
+
+    /// <summary>The most keys; 2 by default, and at least <see cref="MinKeys"/>.</summary>
+    public int MaxKeys { get; init; } = 2;
+
+    /// <summary>The shortest key, in characters. Zero means no bound beyond the one character every key needs.</summary>
+    public int KeyMinLength { get; init; }
+
+    /// <summary>The longest key, in characters. Zero means no limit.</summary>
+    public int KeyMaxLength { get; init; }
+}
+
+/// <summary>
+/// Marks a variable or file input for staged removal (SPEC §4.2): the platform should stop setting it. It still loads
+/// and is still checked; when it is set, startup logs a warning naming it and <see cref="Message"/>, never its value.
+/// A <c>[Required]</c> input cannot be deprecated, since the platform could not stop setting it.
+/// </summary>
+/// <param name="message">What to use instead, or why the input is going away: not blank, at most 500 characters.</param>
+/// <example><code>[Deprecated("Use Port instead", ReplacedBy = "PORT")] public int? OldPort { get; set; }</code></example>
+[AttributeUsage(AttributeTargets.Property)]
+public sealed class DeprecatedAttribute(string message) : Attribute
+{
+    /// <summary>What to use instead, or why the input is going away.</summary>
+    public string Message { get; } = message;
+
+    /// <summary>The name of the input that replaces it in the contract: an environment variable or a file input name.</summary>
+    public string? ReplacedBy { get; init; }
+}
+
+/// <summary>Example values for generated docs (SPEC §4.2), written as the platform would. A secret has none.</summary>
+/// <example><code>[Examples("orders", "billing")] public string AppName { get; set; } = "orders";</code></example>
+[AttributeUsage(AttributeTargets.Property)]
+public sealed class ExamplesAttribute(params string[] values) : Attribute
+{
+    /// <summary>The examples.</summary>
+    public IReadOnlyList<string> Values { get; } = values;
+}
+
 /// <summary>Overrides the environment variable name derived from the configuration path.</summary>
 [AttributeUsage(AttributeTargets.Property)]
 public sealed class EnvNameAttribute(string name) : Attribute
@@ -244,11 +293,22 @@ public abstract class FileInputAttribute(string path) : Attribute
 }
 
 /// <summary>
-/// A JSON configuration file, deserialized into the property's type. The contract carries a JSON Schema
-/// generated from that type, so the platform validates the file against the same type the app binds.
+/// A structured configuration file in JSON, YAML or TOML, deserialized into the property's type. The contract carries
+/// a JSON Schema generated from that type, so the platform validates the file against the same type the app binds.
 /// </summary>
+/// <remarks>
+/// The property is the bound type itself, read once at startup, or a <see cref="ConfigFile{T}"/>, whose
+/// <see cref="ConfigFile{T}.Value"/> reloads the file when it changes and so allows <see cref="Reload.Watch"/>.
+/// </remarks>
 [AttributeUsage(AttributeTargets.Property)]
-public sealed class ConfigFileAttribute(string path) : FileInputAttribute(path);
+public sealed class ConfigFileAttribute(string path) : FileInputAttribute(path)
+{
+    /// <summary>
+    /// <c>json</c>, <c>yaml</c> or <c>toml</c>. By default it comes from the path's extension: <c>.yaml</c> and
+    /// <c>.yml</c> are YAML, <c>.toml</c> is TOML, anything else JSON.
+    /// </summary>
+    public string? Format { get; init; }
+}
 
 /// <summary>
 /// A TLS key pair in the <c>kubernetes.io/tls</c> layout (<c>tls.crt</c>, <c>tls.key</c>, optional <c>ca.crt</c>).

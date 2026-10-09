@@ -92,8 +92,20 @@ public static class SchemaGenerator
 
         if (Attr<RangeAttribute>() is { } range && (IsType(schema, "integer") || IsType(schema, "number")))
         {
-            schema["minimum"] = JsonValue.Create(Convert.ToDouble(range.Minimum, CultureInfo.InvariantCulture));
-            schema["maximum"] = JsonValue.Create(Convert.ToDouble(range.Maximum, CultureInfo.InvariantCulture));
+            // [Range(1, int.MaxValue)] says "at least 1": a bound at the type's own limit is left out, as the schema of
+            // an unbounded property has none.
+            var (lowest, highest) = Limits(context.PropertyInfo.PropertyType);
+            var min = Convert.ToDouble(range.Minimum, CultureInfo.InvariantCulture);
+            var max = Convert.ToDouble(range.Maximum, CultureInfo.InvariantCulture);
+            if (min != lowest)
+            {
+                schema["minimum"] = JsonValue.Create(min);
+            }
+
+            if (max != highest)
+            {
+                schema["maximum"] = JsonValue.Create(max);
+            }
         }
 
         void Bounds(int? min, int? max)
@@ -140,6 +152,17 @@ public static class SchemaGenerator
         }
 
         return schema;
+    }
+
+    private static (double Lowest, double Highest) Limits(Type type)
+    {
+        var t = Nullable.GetUnderlyingType(type) ?? type;
+        return t == typeof(int) ? (int.MinValue, int.MaxValue)
+            : t == typeof(long) ? (long.MinValue, long.MaxValue)
+            : t == typeof(short) ? (short.MinValue, short.MaxValue)
+            : t == typeof(double) ? (double.MinValue, double.MaxValue)
+            : t == typeof(float) ? (float.MinValue, float.MaxValue)
+            : (double.NaN, double.NaN);
     }
 
     private static bool IsType(JsonObject schema, string type) => schema["type"] switch

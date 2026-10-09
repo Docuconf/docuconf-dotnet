@@ -1,5 +1,5 @@
 using System.Security.Cryptography;
-using System.Text;
+using Docuconf;
 
 namespace Orders.Api;
 
@@ -14,27 +14,20 @@ public static class Webhook
     /// of <paramref name="keys"/>. Accepting every key in the set is what lets a key be rotated: during the overlap
     /// the old and the new key both work.
     /// </summary>
-    public static bool Verify(IReadOnlyList<string>? keys, byte[] body, string? signature)
+    public static bool Verify(KeySet? keys, byte[] body, string? signature)
     {
-        byte[] got;
+        byte[] expected;
         try
         {
-            got = Convert.FromHexString(signature ?? "");
+            expected = Convert.FromHexString(signature ?? "");
         }
         catch (FormatException)
         {
             return false;
         }
 
-        bool ok = false;
-        foreach (var key in keys ?? [])
-        {
-            var mac = HMACSHA256.HashData(Encoding.UTF8.GetBytes(key), body);
-            // Check every key, so the time taken does not say which one matched.
-            ok = CryptographicOperations.FixedTimeEquals(mac, got) | ok;
-        }
-
-        return ok;
+        // Tries every key, so the time taken does not say which one matched; each comparison is constant-time too.
+        return keys?.Verify(key => CryptographicOperations.FixedTimeEquals(HMACSHA256.HashData(key, body), expected)) == true;
     }
 
     /// <summary>Reads at most <see cref="MaxBody"/> bytes of <paramref name="body"/>; null when it is longer.</summary>

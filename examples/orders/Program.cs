@@ -20,10 +20,10 @@ app.MapGet("/config", () => new
     orders.AllowedOrigins,
     RequestTimeout = orders.RequestTimeout.ToString(),
     orders.WorkerCount,
-    WebhookKeys = "***", // [Secret], set or not
+    WebhookKeys = "***", // a key set is secret, set or not
 });
 
-// Payment webhooks, signed with any key in WEBHOOK_KEYS (see OrdersOptions.cs for how to rotate it).
+// Payment webhooks, signed with any key in WEBHOOK_KEYS (see README.md for how to rotate it).
 app.MapPost("/webhooks/payments", async (HttpRequest request) =>
 {
     if (await Webhook.ReadBody(request.Body) is not { } body)

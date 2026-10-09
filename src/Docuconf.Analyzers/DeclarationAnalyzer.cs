@@ -64,6 +64,10 @@ public sealed class DeclarationAnalyzer : DiagnosticAnalyzer
         "A file input needs its own property type",
         "{0}: a [{1}] property must be of type {2}");
 
+    internal static readonly DiagnosticDescriptor BadDeprecation = Rule("DOCUCONF011",
+        "A deprecation needs a message, and a required input cannot be deprecated",
+        "{0}: {1}");
+
     private static readonly Regex EnvNameSyntax = new("^[A-Z][A-Z0-9_]*$");
     private static readonly Regex ServiceSyntax = new("^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$");
     private static readonly Regex NonRe2 = new(@"\(\?[=!<>]|\(\?<[=!]|\\[1-9]|\\k<|\(\?>|[*+?}]\+");
@@ -71,7 +75,7 @@ public sealed class DeclarationAnalyzer : DiagnosticAnalyzer
     /// <inheritdoc />
     public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics { get; } = ImmutableArray.Create(
         MissingDescription, SecretWithDefault, ConstraintMisfit, DefaultViolates, BadEnvName, BadService, NonRe2Pattern,
-        SecretInRecord, NotDescribable, FileInputType);
+        SecretInRecord, NotDescribable, FileInputType, BadDeprecation);
 
     /// <inheritdoc />
     public override void Initialize(AnalysisContext context)
@@ -101,7 +105,7 @@ public sealed class DeclarationAnalyzer : DiagnosticAnalyzer
 
     private enum VarType
     {
-        String, Int, Float, Bool, Duration, Url, Enum, List, Json,
+        String, Int, Float, Bool, Duration, Url, Enum, List, Json, KeySet,
     }
 
     private sealed class Walker(SymbolAnalysisContext context)
@@ -141,6 +145,7 @@ public sealed class DeclarationAnalyzer : DiagnosticAnalyzer
                 return;
             }
 
+            Deprecation(prop, key);
             if (Find(prop, "Docuconf.FileInputAttribute") is { } file)
             {
                 FileInput(prop, file, key, location);
@@ -149,7 +154,7 @@ public sealed class DeclarationAnalyzer : DiagnosticAnalyzer
 
             var clr = Unwrap(prop.Type);
             bool json = Has(prop, "Docuconf.JsonVarAttribute");
-            if (json || IsScalar(clr) || ListItemKind(clr) is not null)
+            if (json || IsScalar(clr) || ListItemKind(clr) is not null || Is(clr, "Docuconf.KeySet"))
             {
                 Variable(prop, clr, key, location, json);
             }
@@ -177,7 +182,12 @@ public sealed class DeclarationAnalyzer : DiagnosticAnalyzer
 
             var listKind = ListItemKind(clr);
             VarType type;
-            if (json)
+            if (Is(clr, "Docuconf.KeySet"))
+            {
+                type = VarType.KeySet;
+                listKind = null;
+            }
+            else if (json)
             {
                 type = VarType.Json;
                 listKind = null;
@@ -222,7 +232,7 @@ public sealed class DeclarationAnalyzer : DiagnosticAnalyzer
             }
 
             var initializer = Initializer(prop);
-            bool secret = Has(prop, "Docuconf.SecretAttribute");
+            bool secret = Has(prop, "Docuconf.SecretAttribute") || type == VarType.KeySet;
             if (secret && initializer is not null && !IsEmpty(initializer))
             {
                 Report(SecretWithDefault, initializer.GetLocation(), key);
@@ -271,7 +281,7 @@ public sealed class DeclarationAnalyzer : DiagnosticAnalyzer
             {
                 if (Find(prop, $"System.ComponentModel.DataAnnotations.{name}Attribute") is { } length && type is not (VarType.String or VarType.Url or VarType.List))
                 {
-                    Misfit(length, name, "strings, urls and lists");
+                    Misfit(length, name, type == VarType.KeySet ? "strings, urls and lists; bound a key set with [KeySet(MinKeys = ..., MaxKeys = ...)]" : "strings, urls and lists");
                 }
             }
 
@@ -285,15 +295,53 @@ public sealed class DeclarationAnalyzer : DiagnosticAnalyzer
                 Misfit(itemLength, "ItemLength", "lists of strings, such as string[] or List<string>");
             }
 
-            if (Find(prop, "Docuconf.CsvAttribute") is { } csv && type != VarType.List)
+            if (Find(prop, "Docuconf.CsvAttribute") is { } csv && type is not (VarType.List or VarType.KeySet))
             {
-                Misfit(csv, "Csv", "lists, such as string[] or List<string>");
+                Misfit(csv, "Csv", "lists, such as string[] or List<string>, and key sets");
+            }
+
+            if (Find(prop, "Docuconf.KeySetAttribute") is { } keySet && type != VarType.KeySet)
+            {
+                Misfit(keySet, "KeySet", "properties of type KeySet");
             }
 
             if (type == VarType.Json && (IsScalar(clr) || clr.IsValueType))
             {
                 Misfit(Find(prop, "Docuconf.JsonVarAttribute")!, "JsonVar", "classes, lists and dictionaries a JSON value deserializes into");
             }
+        }
+
+        /// <summary>[Deprecated] needs a message of at most 500 characters, and never goes on a [Required] input.</summary>
+        private void Deprecation(IPropertySymbol prop, string key)
+        {
+            if (Find(prop, "Docuconf.DeprecatedAttribute") is not { } deprecated)
+            {
+                return;
+            }
+
+            var message = deprecated.ConstructorArguments.FirstOrDefault().Value as string;
+            string? problem = string.IsNullOrWhiteSpace(message) ? "[Deprecated] needs a message that is not blank: what to use instead, or why the input is going away"
+                : CodePoints(message!) > 500 ? $"the [Deprecated] message is {CodePoints(message!)} characters, above 500"
+                : Has(prop, "System.ComponentModel.DataAnnotations.RequiredAttribute") ? "a [Required] input cannot be [Deprecated]: the platform could not stop setting it; make it optional first"
+                : null;
+            if (problem is not null)
+            {
+                Report(BadDeprecation, LocationOf(deprecated, prop), key, problem);
+            }
+        }
+
+        private static int CodePoints(string s)
+        {
+            int n = 0;
+            for (int i = 0; i < s.Length; i++)
+            {
+                if (!char.IsLowSurrogate(s[i]))
+                {
+                    n++;
+                }
+            }
+
+            return n;
         }
 
         /// <summary>Checks a literal default (or the 0 of an unset number) against [Range] and [AllowedValues].</summary>
@@ -367,9 +415,12 @@ public sealed class DeclarationAnalyzer : DiagnosticAnalyzer
                 Report(FileInputType, location, key, shortName, expected.Substring(expected.LastIndexOf('.') + 1));
             }
 
-            if (name == "ConfigFileAttribute" && !IsComplex(Unwrap(prop.Type)))
+            var configType = Unwrap(prop.Type) is INamedTypeSymbol { IsGenericType: true } generic && Is(generic.OriginalDefinition, "Docuconf.ConfigFile<T>")
+                ? generic.TypeArguments[0]
+                : Unwrap(prop.Type);
+            if (name == "ConfigFileAttribute" && !IsComplex(configType))
             {
-                Report(FileInputType, location, key, shortName, "a class the JSON file deserializes into");
+                Report(FileInputType, location, key, shortName, "a class the file deserializes into, or a ConfigFile<T> of one");
             }
 
             if (name == "TextFileAttribute" && attribute.NamedArguments.FirstOrDefault(a => a.Key == "Pattern").Value.Value is string pattern && NonRe2.IsMatch(pattern))
@@ -397,7 +448,12 @@ public sealed class DeclarationAnalyzer : DiagnosticAnalyzer
         }
     }
 
-    private static string Key(string section, IPropertySymbol prop) => section.Length == 0 ? prop.Name : section + ":" + prop.Name;
+    private static string Key(string section, IPropertySymbol prop)
+    {
+        // [ConfigurationKeyName] renames the key the configuration binder reads.
+        var name = Find(prop, "Microsoft.Extensions.Configuration.ConfigurationKeyNameAttribute")?.ConstructorArguments.FirstOrDefault().Value as string ?? prop.Name;
+        return section.Length == 0 ? name : section + ":" + name;
+    }
 
     private static bool HasDescription(IPropertySymbol prop)
     {

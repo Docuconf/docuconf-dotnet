@@ -10,7 +10,7 @@ namespace Docuconf.Contract;
 /// </summary>
 public static partial class GoDuration
 {
-    [GeneratedRegex("^([0-9]+(ns|us|ms|s|m|h))+$")]
+    [GeneratedRegex("^([0-9]+(ns|us|ms|s|m|h))+\\z")]
     private static partial Regex Syntax();
 
     /// <summary>Formats a non-negative duration, omitting zero units: 90s is <c>1m30s</c>.</summary>
@@ -101,7 +101,7 @@ public static partial class GoDuration
         }
     }
 
-    [GeneratedRegex(@"^(?<sign>[-+]?)(?:(?<zero>0)|(?:(?<n>[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?<u>ns|us|\u00b5s|\u03bcs|ms|s|m|h))+)$")]
+    [GeneratedRegex(@"^(?<sign>[-+]?)(?:(?<zero>0)|(?:(?<n>[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?<u>ns|us|\u00b5s|\u03bcs|ms|s|m|h))+)\z")]
     private static partial Regex GoSyntax();
 
     /// <summary>Whether <paramref name="value"/> is a Go-syntax duration.</summary>
