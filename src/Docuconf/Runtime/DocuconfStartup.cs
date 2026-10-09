@@ -133,6 +133,10 @@ internal static class DocuconfStartup
             if (section.Value is { } value)
             {
                 secrets.Add(value);
+                if (DocuconfBinder.IsCsvValue(section, spec))
+                {
+                    secrets.AddRange(value.Split(spec.Separator ?? ","));
+                }
             }
 
             secrets.AddRange(section.GetChildren().Select(c => c.Value).OfType<string>());

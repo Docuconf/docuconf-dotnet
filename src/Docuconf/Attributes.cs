@@ -140,6 +140,21 @@ public sealed class ItemLengthAttribute : ValidationAttribute
     }
 }
 
+/// <summary>
+/// The list is one value with its items joined by <see cref="Separator"/>, the contract's <c>csv</c> encoding
+/// (SPEC §5), instead of the indexed <c>NAME__0</c>, <c>NAME__1</c>, ... that .NET's configuration binder reads. Use it
+/// when one Kubernetes Secret key holds the whole list, such as a key set of <c>old,new</c> during a rotation
+/// (SPEC §6.1). The items are split exactly as given: nothing is trimmed, and an empty item stays in the list, where
+/// <see cref="ItemLengthAttribute"/> can reject it.
+/// </summary>
+/// <example><code>[Csv, EnvName("WEBHOOK_KEYS"), Secret, ItemLength(32, 256)] public List&lt;string&gt;? WebhookKeys { get; set; }</code></example>
+[AttributeUsage(AttributeTargets.Property)]
+public sealed class CsvAttribute(string separator = ",") : Attribute
+{
+    /// <summary>The string between items; <c>,</c> by default.</summary>
+    public string Separator { get; } = separator;
+}
+
 /// <summary>Overrides the environment variable name derived from the configuration path.</summary>
 [AttributeUsage(AttributeTargets.Property)]
 public sealed class EnvNameAttribute(string name) : Attribute

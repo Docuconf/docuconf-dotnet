@@ -356,6 +356,23 @@ public static partial class ContractReader
             }
         }
 
+        string? encoding = null, separator = null;
+        if (prop.GetCustomAttribute<CsvAttribute>() is { } csv)
+        {
+            if (type != VarType.List)
+            {
+                errors.Add($"{key}: [Csv] applies to lists, such as string[] or List<string>.");
+            }
+            else if (csv.Separator.Length == 0)
+            {
+                errors.Add($"{key}: [Csv] needs a separator that is not empty.");
+            }
+            else
+            {
+                (encoding, separator) = ("csv", csv.Separator);
+            }
+        }
+
         // A json value's maxLength comes from [JsonVar(MaxLength = n)]: DataAnnotations' length attributes do not
         // apply to an object.
         var (minLength, maxLength) = type == VarType.Json
@@ -400,6 +417,8 @@ public static partial class ContractReader
             Schemes = schemes,
             Values = values,
             Items = listKind,
+            Encoding = encoding,
+            Separator = separator,
             Schema = json ? SchemaGenerator.For(clr) : null,
             PropertyPath = path,
             ClrType = prop.PropertyType,

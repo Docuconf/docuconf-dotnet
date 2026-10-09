@@ -122,6 +122,19 @@ internal static class AppSettingsReader
             return JsonVar.Bind(section, spec.ClrType!) is { } bound ? JsonVar.ToNode(bound, spec.ClrType!) : null;
         }
 
+        if (spec.Type == VarType.List && spec.Encoding == "csv" && section.Value is { } joined)
+        {
+            if (joined.Length == 0)
+            {
+                return null;
+            }
+
+            var split = joined.Split(spec.Separator ?? ",");
+            return spec.Items == "int"
+                ? split.Select(i => Parsed(WireFormat.ParseInt(i, out var l), i, l)).ToList()
+                : split.Select(i => (object)i).ToList();
+        }
+
         if (spec.Type == VarType.List)
         {
             var items = section.GetChildren()
