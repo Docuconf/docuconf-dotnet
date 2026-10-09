@@ -109,7 +109,8 @@ public sealed class VarSpec
     public int? ItemMaxLength { get; init; }
     /// <summary>
     /// The wire encoding of a list or duration (SPEC §5). Null for declared options, which .NET's configuration
-    /// binder reads as <c>indexed</c> lists and <c>timespan</c> durations.
+    /// binder reads as <c>indexed</c> lists and <c>timespan</c> durations, except <c>csv</c> for a list marked
+    /// <see cref="CsvAttribute"/>.
     /// </summary>
     public string? Encoding { get; init; }
     /// <summary>The separator of a <c>csv</c> list. Null means <c>,</c>.</summary>
