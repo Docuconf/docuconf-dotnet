@@ -67,8 +67,12 @@ internal static class Constraints
                 return null;
             case VarType.Json when value is JsonNode node:
                 if (spec.MaxLength is not null && MaxLength(spec, wire ?? CompactJson.Write(node), "of JSON") is { } tooLongJson) return tooLongJson;
-                // A contract read from JSON has no .NET type to bind; its schema is the platform's to check.
-                return spec.ClrType is null ? null : JsonVar.Check(spec, node) is { } problem ? new Problem(Codes.SchemaMismatch, problem) : null;
+                // A declared value is checked by binding it to its .NET type; a contract read from JSON, which has no type,
+                // against the contract's JSON Schema.
+                var mismatch = spec.ClrType is not null ? JsonVar.Check(spec, node)
+                    : spec.Schema is not null ? JsonSchemaCheck.Check(spec, node)
+                    : null;
+                return mismatch is null ? null : new Problem(Codes.SchemaMismatch, mismatch);
             default:
                 return new Problem(Codes.InvalidType, $"is not a valid {spec.Type.ToString().ToLowerInvariant()}");
         }

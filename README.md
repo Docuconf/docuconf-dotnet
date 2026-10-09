@@ -370,7 +370,11 @@ to; it never returns a silent default. `Load(env)` and `Validate(env)` take an e
 violations. Values are typed: `long` for `int`, `double`, `bool`, `TimeSpan` for `duration`, `Uri` for `url`,
 `IReadOnlyList<string>` or `IReadOnlyList<long>` for lists, a `JsonNode` for `json`, `string` otherwise; an absent
 optional value is null. Printing the values shows secrets as `***`. Every wire encoding of SPEC §5 is read. File
-inputs and overlays are not read in this mode, and `json` values are parsed but not checked against their schema.
+inputs and overlays are not read in this mode. A `json` value is checked against the variable's JSON Schema (draft
+2020-12, with [JsonSchema.Net](https://github.com/json-everything/json-everything) 8, the last MIT-licensed major) and
+fails with `schema_mismatch`, naming the location and keyword (`/perMinute fails minimum`) and, for a secret, never
+the value; `minLength` and `maxLength` count code points, as in the other SDKs. A schema JsonSchema.Net cannot read,
+or one with a `$schema` other than 2020-12, is an error when the contract is read.
 
 ### Conformance
 
@@ -382,9 +386,9 @@ DOCUCONF_CONFORMANCE=../docuconf-go/conformance/cases.json DOCUCONF_REQUIRE_CONF
   dotnet test -- --filter-class Docuconf.Tests.ConformanceTests --output detailed
 ```
 
-Without the file the test is skipped, unless `DOCUCONF_REQUIRE_CONFORMANCE=1` (as in CI). Cases tagged `json-schema`
-are skipped: .NET has no JSON Schema validator, so the contract-first mode does not check `json` values against their
-schema (options classes check them with their type's DataAnnotations instead).
+Without the file the test is skipped, unless `DOCUCONF_REQUIRE_CONFORMANCE=1` (as in CI). Capability tags skipped:
+none. The runner supports `int64` and `json-schema`, and fails when a case is skipped, so a tag it does not know yet
+shows up as a failure rather than a silent skip.
 
 ### Develop
 

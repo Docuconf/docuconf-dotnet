@@ -18,8 +18,8 @@ namespace Docuconf;
 /// Every wire encoding of SPEC §5 is parsed: lists as <c>csv</c> (with the contract's <c>separator</c>), <c>json</c> or
 /// <c>indexed</c> (<c>NAME__0</c>, <c>NAME__1</c>, ...), durations as <c>go</c>, <c>iso8601</c>, <c>seconds</c> or
 /// <c>timespan</c>. Values are checked with the same parsers and constraint checks as declared options. The mode
-/// covers variables, with the defaults of the profile the contract's selector picks: <c>json</c> values are parsed
-/// but not checked against their JSON Schema, and file inputs and overlays are not read.
+/// covers variables, with the defaults of the profile the contract's selector picks: <c>json</c> values are checked
+/// against their JSON Schema (draft 2020-12), and file inputs and overlays are not read.
 /// </remarks>
 /// <example>
 /// <code>

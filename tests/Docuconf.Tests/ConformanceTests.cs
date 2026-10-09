@@ -13,10 +13,10 @@ namespace Docuconf.Tests;
 public sealed class ConformanceTests
 {
     /// <summary>
-    /// Capability tags this SDK supports. Not supported: <c>json-schema</c>, because .NET has no JSON Schema
-    /// validator, so the contract-first mode does not check <c>json</c> values against their schema.
+    /// Capability tags this SDK supports: all of them, so no case is skipped. <c>json-schema</c> is checked with
+    /// JsonSchema.Net.
     /// </summary>
-    private static readonly HashSet<string> Supported = ["int64"];
+    private static readonly HashSet<string> Supported = ["int64", "json-schema"];
 
     [Fact]
     public void Passes_the_conformance_suite()
@@ -74,6 +74,8 @@ public sealed class ConformanceTests
         }
 
         Assert.True(failures.Count == 0, summary + Environment.NewLine + string.Join(Environment.NewLine, failures));
+        // Every capability tag is supported: a skip means a new tag this runner does not know yet.
+        Assert.True(skipped.Count == 0, summary + Environment.NewLine + string.Join(Environment.NewLine, skipped));
     }
 
     private static string Locate()

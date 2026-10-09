@@ -196,6 +196,11 @@ internal static partial class ContractJson
             Error("an enum needs values.");
         }
 
+        if (v["schema"] is { } schemaNode && JsonSchemaCheck.Problem(schemaNode) is { } badSchema)
+        {
+            Error($"schema is not a valid JSON Schema: {badSchema}");
+        }
+
         if (errors.Count > before)
         {
             return null;

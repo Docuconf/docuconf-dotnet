@@ -53,6 +53,14 @@
     <PackageReference Include="Microsoft.Extensions.Options.DataAnnotations" Version="10.0.12" />
   </ItemGroup>
 
+  <!--
+    Validates json values against their contract's JSON Schema in the contract-first mode (draft 2020-12). 8.0.x is
+    the last MIT-licensed major; later majors moved to a commercial licence.
+  -->
+  <ItemGroup>
+    <PackageReference Include="JsonSchema.Net" Version="8.0.5" />
+  </ItemGroup>
+
   <ItemGroup>
     <InternalsVisibleTo Include="Docuconf.Tests" />
   </ItemGroup>
