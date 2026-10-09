@@ -49,4 +49,18 @@ public sealed class OrdersOptions
     /// </remarks>
     [Range(1, 64)]
     public int WorkerCount { get; set; } = 4;
+
+    // A key set (SPEC §4.3, §6.1): every key in it is valid at once, so a key can be rotated without turning webhooks
+    // away. One Kubernetes Secret key holds "old,new" during a rotation, and [EnvName] gives it a name of its own. A
+    // KeySet is always secret, so it has no initializer, and it never prints its keys.
+
+    /// <summary>Keys that verify the signature on incoming payment webhooks.</summary>
+    /// <remarks>
+    /// <para>
+    /// A webhook is accepted when it is signed with any key in the set. Each key is 32 to 256 characters, so an empty or
+    /// truncated key fails at boot. Without this variable, the service rejects every webhook.
+    /// </para>
+    /// </remarks>
+    [KeySet(KeyMinLength = 32, KeyMaxLength = 256), EnvName("WEBHOOK_KEYS")]
+    public KeySet? WebhookKeys { get; set; }
 }

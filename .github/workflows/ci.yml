@@ -48,17 +48,22 @@ jobs:
           dotnet-version: |
             8.0.x
             10.0.x
+      # docuconf-go's cmd/docuconf, built for the shared export check, needs Go 1.25.
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.24"
+          go-version: "1.25"
       # The export tests check contracts against the CUE meta-schema.
       - run: go install cuelang.org/go/cmd/cue@v0.17.1
-      # The docuconf-go-facing subset (conformance suite, cue vet of exported
-      # contracts); docuconf-go's downstream workflow runs the same script.
+      # The docuconf-go-facing subset (conformance suite, shared export check, cue vet of exported contracts); it
+      # fails if any conformance case is skipped. docuconf-go's downstream workflow runs the same script.
       - name: Run scripts/conformance.sh
         run: scripts/conformance.sh
         env:
           DOCUCONF_GO_DIR: ${{ github.workspace }}/docuconf-go
+      # The full test run repeats the shared export check, which compares with the CLI of the pinned docuconf-go.
+      - name: Install the docuconf CLI
+        working-directory: docuconf-go/cmd/docuconf
+        run: go install .
       - run: dotnet build -c Release
       # Unit tests on net10.0 and net8.0, the conformance suite, the analyzer, and the README snippets.
       - run: dotnet test -c Release --no-build

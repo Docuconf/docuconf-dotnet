@@ -78,6 +78,20 @@ public sealed class OrdersOptions
     /// </remarks>
     [Range(1, 64)]
     public int WorkerCount { get; set; } = 4;
+
+    // A key set (SPEC §4.3, §6.1): every key in it is valid at once, so a key can be rotated without turning webhooks
+    // away. One Kubernetes Secret key holds "old,new" during a rotation, and [EnvName] gives it a name of its own. A
+    // KeySet is always secret, so it has no initializer, and it never prints its keys.
+
+    /// <summary>Keys that verify the signature on incoming payment webhooks.</summary>
+    /// <remarks>
+    /// <para>
+    /// A webhook is accepted when it is signed with any key in the set. Each key is 32 to 256 characters, so an empty or
+    /// truncated key fails at boot. Without this variable, the service rejects every webhook.
+    /// </para>
+    /// </remarks>
+    [KeySet(KeyMinLength = 32, KeyMaxLength = 256), EnvName("WEBHOOK_KEYS")]
+    public KeySet? WebhookKeys { get; set; }
 }
 ```
 
@@ -185,7 +199,8 @@ dotnet out/Orders.Api.dll docuconf export contract.json          # JSON, for the
 `-` writes to stdout and `--format cue|json` picks the format. Any other `docuconf` command is a usage error, so a typo
 never starts the app. The contract includes the `appsettings.json` values that ship with the app as defaults, and
 `appsettings.{Environment}.json` values as profiles selected by `ASPNETCORE_ENVIRONMENT`. It records that .NET reads
-`TimeSpan` as `hh:mm:ss` and lists as `NAME__0`, `NAME__1`, so the platform renders values that way.
+`TimeSpan` as `hh:mm:ss` and lists as `NAME__0`, `NAME__1` (or `a,b` for a `[Csv]` list), so the platform renders
+values that way.
 
 ## 7. Deploy
 
@@ -229,10 +244,18 @@ bounds a `json` value as received (or, from an appsettings file or overlay, as c
 bounds every item of a string list (`itemMinLength`/`itemMaxLength`), for apps that store values in fixed-width
 fields. A value above its limit fails startup with `out_of_range`; a secret's error gives its length, never its value.
 `[ItemLength]` on an integer list, a minimum above the maximum, or a minimum length on a URL is a declaration error.
-Values are read as the platform writes them (SPEC §5): integers in base 10,
-numbers with a `.` whatever the culture, `true`/`false`, URLs with a `scheme://`, and enum names exactly as declared.
+Values are parsed by the exact rules of SPEC §5, whatever .NET's own parsers accept, so the platform and every SDK
+take the same strings; anything else is `invalid_type`. Nothing is trimmed: `" true"`, `"8080\n"` and `"5s "` fail.
+A `bool` is `true` or `false` in any case (`TRUE`, `False`), never `1`, `yes` or `on`. An integer is decimal digits
+with an optional sign (`+5` and `007` are fine; `0x10`, `1_000`, `1e3` and `5.0` are not), and outside its type's
+range `out_of_range`. A number has a digit on each side of its point, with an optional exponent, whatever the culture
+(`25e-2`; never `.5`, `5.`, `0,5`, `Infinity` or a hex float). A `TimeSpan` is `[d.]hh:mm:ss[.fffffff]` (`00:00:30`,
+`1.02:03:04.5`), never `00:30`, a bare number or a sign. URLs need a `scheme://`, and enum names match exactly as
+declared. These rules apply to appsettings values and overlays as well as to the environment.
 A list given as one value (`ORDERS__ALLOWEDORIGINS=a,b`) is `invalid_type` with the indexed form to use instead, and
-list items must be numbered from 0 with no gap.
+list items must be numbered from 0 with no gap. A list marked `[Csv]` is the other way round: one value, `a,b`, split
+on the separator exactly as given, so `a, b` is `a` and ` b`, and a trailing comma leaves an empty item for
+`[ItemLength]` to reject.
 
 | Attribute | Input |
 |---|---|
@@ -242,12 +265,18 @@ list items must be numbered from 0 with no gap.
 | `[EnvName("LOG_LEVEL")]` | Overrides the derived variable name. The app reads that variable, and the configuration path (for appsettings) when it is not set. |
 | `[ItemRange(0, 1023)]` on an `int[]`, `List<long>`, ... | Bounds every item of an integer list (`itemMin`/`itemMax`). |
 | `[ItemLength(2, 4)]` on a `string[]`, `List<string>`, ... | Bounds the length of every item of a string list, in characters (`itemMinLength`/`itemMaxLength`). |
+| `[Csv]` or `[Csv(";")]` on a list | The list is one value with its items joined by the separator (`encoding: csv`), instead of `NAME__0`, `NAME__1`, ... Use it when one Secret key holds the list. On a `KeySet`, it changes the separator. |
+| `KeySet` property, with `[KeySet(...)]` | A key set (`keySet`): secret keys that are all valid at once, for rotation (see [Key sets](#key-sets)). `MinKeys` (1) and `MaxKeys` (2) bound the number of keys, `KeyMinLength` and `KeyMaxLength` each key. |
+| `[Deprecated("Use PORT instead", ReplacedBy = "PORT")]` | The input is being removed (`deprecated`): it still loads, and startup warns when it is set (see [Deprecated inputs](#deprecated-inputs)). |
+| `[Display(GroupName = "database")]` | The docs group (`group`). |
+| `[Examples("orders", "billing")]` | Example values for the docs (`examples`); not on a secret. |
+| `[ConfigurationKeyName("PORT")]` | Microsoft.Extensions.Configuration's own rename: the configuration key, and so the variable name, follow it. A `configKey` equal to the variable's name is left out of the contract. |
 | `[MaxLength(200)]` with `[UrlSchemes]` or `[Url]` | Bounds a URL's length in characters (`maxLength`). |
 | `[JsonVar]` on a class | One variable holding JSON, checked against the class (see below). |
 | `[JsonVar(MaxLength = 256)]` | Bounds a `json` value's length in characters, measured as received (`maxLength`). |
 | `[External("KeyVault")]` | Supplied by a provider the platform does not control; left out of the contract. Dictionaries and lists of objects need it (or `[JsonVar]`). |
 | `[TlsFile(dir)]` on a `TlsKeyPair` | `tls.crt`, `tls.key`, optional `ca.crt`. Checked for key match, expiry (`MinRemaining`), `DnsNames`, `KeyAlgorithms`, and the chain to `ca.crt` (`RequireCA`). `.Current` reloads rotated certificates. |
-| `[ConfigFile(path)]` on any class | A JSON file deserialized into that class. The contract carries a JSON Schema generated from it. |
+| `[ConfigFile(path)]` on any class | A JSON, YAML or TOML file (by its extension, or `Format = "yaml"`) deserialized into that class. The contract carries a JSON Schema generated from it. On a `ConfigFile<T>`, `.Value` reloads the file when it changes, which `Reload = Reload.Watch` needs. |
 | `[CaBundleFile(path)]` on a `CaBundle` | PEM CA certificates. |
 | `[KeystoreFile(path, PasswordProperty = ...)]` on a `Keystore` | A PKCS#12 keystore; its password is a `[Secret]` property. |
 | `[TextFile(path, Pattern = ...)]` on a `string` | A text file such as a licence key; the property receives the content. |
@@ -305,6 +334,11 @@ A `[JsonVar]` value is read like a config file (camelCase names, read case-insen
 properties rejected) and its type's DataAnnotations are checked at startup. In `appsettings.json` or an overlay it can
 also be a nested section. [`samples/Billing.Api`](samples/Billing.Api) uses every input kind.
 
+A config file may be JSON, YAML (read with [YamlDotNet](https://github.com/aaubry/YamlDotNet), YAML 1.2 core schema)
+or TOML (read with [Tomlyn](https://github.com/xoofx/Tomlyn)); YAML and TOML are converted to JSON and bound the same
+way. A file that does not parse is `file_malformed`; one that parses but does not bind to the class (a wrong type, an
+unknown property) or breaks its DataAnnotations is `schema_mismatch`.
+
 ### Analyzer
 
 The package's analyzer reports declaration errors in the IDE and fails the build, with the messages export and
@@ -322,8 +356,45 @@ startup would give later:
 | DOCUCONF008 | A record's generated `ToString` would print a `[Secret]`. |
 | DOCUCONF009 | A dictionary or list of objects has no `[JsonVar]` or `[External]`. |
 | DOCUCONF010 | A file input attribute is on the wrong property type. |
+| DOCUCONF011 | A `[Deprecated]` message is blank or over 500 characters, or the input is `[Required]`. |
 
 Checks that need the built app (appsettings files, defaults computed by code) run at export and startup.
+
+### Key sets
+
+A `KeySet` holds secret keys that are all valid at once, so a key can be rotated without an outage (SPEC §4.3, §6.1):
+webhook signatures, inbound API keys, HMAC-signed tokens. The platform supplies it from one Secret key holding
+`old,new` while a key is rotated:
+
+```csharp
+[KeySet(KeyMinLength = 32, KeyMaxLength = 256), EnvName("WEBHOOK_KEYS")]
+public KeySet? WebhookKeys { get; set; }
+```
+
+`Keys` lists them in order, `Contains(candidate)` compares an API key with every key in constant time, and
+`Verify(check)` runs a check of yours against each key, all of them even after one matches, for an HMAC:
+
+```csharp
+// Tries every key, so the time taken does not say which one matched; each comparison is constant-time too.
+return keys?.Verify(key => CryptographicOperations.FixedTimeEquals(HMACSHA256.HashData(key, body), expected)) == true;
+```
+
+A key set is always secret: it has no default, its keys are never trimmed, and `ToString()` and System.Text.Json show
+`***`. A number of keys outside `MinKeys`..`MaxKeys` is `too_few_items` or `too_many_items`; a key outside its lengths,
+or an empty one (a stray comma), is `out_of_range`, and no message holds a key. The generated docs print the rotation
+steps for every key set.
+
+### Deprecated inputs
+
+`[Deprecated("...")]` marks a variable or file input the platform should stop setting (SPEC §4.2); `ReplacedBy`
+names the input that replaces it. The message is required, at most 500 characters, and a `[Required]` input cannot be
+deprecated, since the platform could not stop setting it. A deprecated input still loads and is still checked. When
+it is set, startup logs a warning through the app's `ILogger` (or stderr) that names the input and the message, never
+the value:
+
+```text
+docuconf: warning: OLD_PORT is deprecated but still set: Use PORT instead (replaced by PORT)
+```
 
 ### Platform overlays and injected secrets
 
@@ -368,9 +439,18 @@ int workers = config.Get<int>("WORKERS");   // converts, or throws when the valu
 `Get<T>` throws on a variable the contract does not declare (with the closest name) and on a type it cannot convert
 to; it never returns a silent default. `Load(env)` and `Validate(env)` take an environment map and throw or return the
 violations. Values are typed: `long` for `int`, `double`, `bool`, `TimeSpan` for `duration`, `Uri` for `url`,
-`IReadOnlyList<string>` or `IReadOnlyList<long>` for lists, a `JsonNode` for `json`, `string` otherwise; an absent
-optional value is null. Printing the values shows secrets as `***`. Every wire encoding of SPEC §5 is read. File
-inputs and overlays are not read in this mode. A `json` value is checked against the variable's JSON Schema (draft
+`IReadOnlyList<string>` or `IReadOnlyList<long>` for lists, a `KeySet` for `keySet`, a `JsonNode` for `json`, `string`
+otherwise; an absent optional value is null. Printing the values shows secrets as `***`. Every wire encoding of
+SPEC §5 is read, with the parsing rules above.
+
+The mode covers the whole contract. Values are layered as a host with config files layers them: the variable's
+default, then the selected profile's default (`profiles`, picked by the selector variable), then each overlay
+(`overlays`, in json, yaml or toml, values at their `configKey`), then the environment. File inputs are loaded from
+their paths, or the `pathEnv` variable's, and checked as declared ones are: a `config` file (json, yaml or toml) against
+its JSON Schema and returned as a `JsonNode`, a `text` file as its text, and a `TlsKeyPair`, `CaBundle`, PKCS#12
+`Keystore` or `BinaryFile` otherwise. Files and overlays are read under `DOCUCONF_FILE_ROOT` when it is set (or
+`DocuconfSettings.FileRoot`). A deprecated input that is set is a warning in `ContractLoadResult.Warnings`, which
+`Load` writes to stderr. A `json` value is checked against the variable's JSON Schema (draft
 2020-12, with [JsonSchema.Net](https://github.com/json-everything/json-everything) 8, the last MIT-licensed major) and
 fails with `schema_mismatch`, naming the location and keyword (`/perMinute fails minimum`) and, for a secret, never
 the value; `minLength` and `maxLength` count code points, as in the other SDKs. A schema JsonSchema.Net cannot read,
@@ -386,9 +466,25 @@ DOCUCONF_CONFORMANCE=../docuconf-go/conformance/cases.json DOCUCONF_REQUIRE_CONF
   dotnet test -- --filter-class Docuconf.Tests.ConformanceTests --output detailed
 ```
 
-Without the file the test is skipped, unless `DOCUCONF_REQUIRE_CONFORMANCE=1` (as in CI). Capability tags skipped:
-none. The runner supports `int64` and `json-schema`, and fails when a case is skipped, so a tag it does not know yet
-shows up as a failure rather than a silent skip.
+Without the file the test is skipped, unless `DOCUCONF_REQUIRE_CONFORMANCE=1` (as in CI). Each case's files are
+written under a new directory, which is its `DOCUCONF_FILE_ROOT`.
+
+**Capability tags skipped: none.** The runner keeps an allow-list of the tags it supports, which is every tag in the
+suite: `int64`, `json-schema`, `key-set`, `deprecated`, `strict-parsing`, `files`, `profiles` and `overlays`. A case
+with a tag it does not know is skipped, never run, and a skip fails the test, so a new tag shows up as a failure
+rather than a silent skip. PKCS#12 keystores (AES-256 with PBKDF2) are opened with .NET's own reader, and an Ed25519
+key is matched to its certificate by docuconf itself, since .NET has no Ed25519 key type. CI runs the suite on Linux.
+On Windows, .NET cannot parse an Ed25519 certificate at all, so an Ed25519 `tls.crt` is reported as
+`certificate_invalid` there whatever `keyAlgorithms` allows; the suite's one Ed25519 case
+(`files_tls/a key algorithm that is not allowed`) expects that code for a different reason.
+
+`scripts/conformance.sh` runs the suite and the shared export check against a docuconf-go checkout: it declares
+docuconf-go's `conformance/export/fixture.yaml` in C# (`tests/Docuconf.Tests/ConformanceExportTests.cs`), exports it,
+and compares it with `conformance/export/golden.cue` using `docuconf conformance export`:
+
+```sh
+DOCUCONF_GO_DIR=../docuconf-go scripts/conformance.sh
+```
 
 ### Develop
 
@@ -402,4 +498,5 @@ and checks the analyzer, the build-time export and startup validation. Releases 
 trusted publishing; see [RELEASING.md](RELEASING.md). The tests check exported contracts against a copy of the CUE
 meta-schema in `tests/Docuconf.Tests/spec`; refresh it with `scripts/sync-spec.sh`.
 
-Licence: [MIT](https://github.com/docuconf/docuconf-dotnet/blob/main/LICENSE).
+Report a vulnerability privately, as [SECURITY.md](SECURITY.md) describes. Licence:
+[MIT](https://github.com/docuconf/docuconf-dotnet/blob/main/LICENSE).

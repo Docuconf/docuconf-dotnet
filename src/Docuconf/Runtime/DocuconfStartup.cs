@@ -1,6 +1,7 @@
 using Docuconf.Contract;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace Docuconf.Runtime;
@@ -84,6 +85,25 @@ internal static class DocuconfStartup
             {
                 settings.Error.WriteLine(hint);
             }
+
+            var logger = services.GetService<ILoggerFactory>()?.CreateLogger("Docuconf");
+            foreach (var registration in registrations)
+            {
+                ContractModel model;
+                try
+                {
+                    model = ContractCache.For(registration.Type);
+                }
+                catch (ContractException)
+                {
+                    continue; // reported above
+                }
+
+                foreach (var (input, deprecation) in SetDeprecated(model, configuration, registration.Settings))
+                {
+                    WarnDeprecated(logger, settings.Error, input, deprecation);
+                }
+            }
         }
 
         if (problems.Count == 0)
@@ -99,6 +119,45 @@ internal static class DocuconfStartup
         }
 
         settings.Exit(1);
+    }
+
+    /// <summary>The deprecated inputs (SPEC §4.2) the configuration still sets.</summary>
+    internal static IEnumerable<(string Input, DeprecationSpec Deprecation)> SetDeprecated(ContractModel model, IConfiguration configuration, DocuconfSettings settings)
+    {
+        foreach (var spec in model.Vars.Values)
+        {
+            if (spec.Deprecated is { } deprecation && DocuconfBinder.IsSet(DocuconfBinder.SectionOf(configuration, spec), spec))
+            {
+                yield return (spec.Name, deprecation);
+            }
+        }
+
+        var root = DocuconfBinder.Root(settings, configuration);
+        foreach (var spec in model.Files.Values)
+        {
+            if (spec.Deprecated is { } deprecation
+                && FileChecks.Exists(spec, FileChecks.Locate(spec, FileChecks.Lookup(configuration), root)))
+            {
+                yield return (spec.Name, deprecation);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Logs that a deprecated input is still set (SPEC §11.2): its name and its <c>deprecated</c> message, never its
+    /// value. It is a warning, not a violation.
+    /// </summary>
+    internal static void WarnDeprecated(ILogger? logger, TextWriter fallback, string input, DeprecationSpec deprecation)
+    {
+        var replaced = deprecation.ReplacedBy is { } by ? $" (replaced by {by})" : "";
+        if (logger is not null)
+        {
+            logger.LogWarning("docuconf: {Input} is deprecated but still set: {Message}{Replaced}", input, deprecation.Message, replaced);
+        }
+        else
+        {
+            fallback.WriteLine($"docuconf: warning: {input} is deprecated but still set: {deprecation.Message}{replaced}");
+        }
     }
 
     /// <summary>Writes the report to stderr and the termination log.</summary>
@@ -133,6 +192,10 @@ internal static class DocuconfStartup
             if (section.Value is { } value)
             {
                 secrets.Add(value);
+                if (DocuconfBinder.IsCsvValue(section, spec))
+                {
+                    secrets.AddRange(value.Split(spec.Separator ?? ","));
+                }
             }
 
             secrets.AddRange(section.GetChildren().Select(c => c.Value).OfType<string>());
@@ -171,7 +234,7 @@ internal static class DocuconfStartup
     }
 
     private static bool IsItemOfDeclaredList(string name, IEnumerable<VarSpec> declared) =>
-        declared.Any(v => v.Type == VarType.List && name.StartsWith(v.Name + "__", StringComparison.Ordinal));
+        declared.Any(v => v.IsListLike && name.StartsWith(v.Name + "__", StringComparison.Ordinal));
 
     /// <summary>Levenshtein distance, stopping early once it exceeds <paramref name="limit"/>.</summary>
     internal static int Distance(string a, string b, int limit)

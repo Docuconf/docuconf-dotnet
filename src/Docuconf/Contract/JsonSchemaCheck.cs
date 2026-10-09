@@ -33,10 +33,13 @@ internal static class JsonSchemaCheck
     /// message names the location and the failing keyword; for a secret it never quotes the schema's message, which
     /// may describe the value.
     /// </summary>
-    public static string? Check(VarSpec spec, JsonNode? instance)
+    public static string? Check(VarSpec spec, JsonNode? instance) => Check(spec.Schema!, spec.Secret, instance);
+
+    /// <summary>Why <paramref name="instance"/> does not match <paramref name="schema"/>, or null when it does.</summary>
+    public static string? Check(JsonNode schema, bool secret, JsonNode? instance)
     {
         using var document = JsonDocument.Parse(instance?.ToJsonString() ?? "null");
-        var results = Compile(spec.Schema!).Evaluate(document.RootElement, new EvaluationOptions { OutputFormat = OutputFormat.List });
+        var results = Compile(schema).Evaluate(document.RootElement, new EvaluationOptions { OutputFormat = OutputFormat.List });
         if (results.IsValid)
         {
             return null;
@@ -54,7 +57,7 @@ internal static class JsonSchemaCheck
         // The deepest error is the most specific: a failing property rather than the object around it.
         var (location, keyword, message) = errors.OrderByDescending(e => e.Location.Length).First();
         var at = location.Length == 0 ? "the value" : location;
-        return spec.Secret ? $"{at} fails {keyword}" : $"{at} fails {keyword}: {message}";
+        return secret ? $"{at} fails {keyword}" : $"{at} fails {keyword}: {message}";
     }
 
     /// <summary>

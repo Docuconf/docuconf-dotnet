@@ -106,6 +106,7 @@ public sealed class AnalyzerTests
     [InlineData("[MinLength(1)] public int Count { get; set; } = 1;", "[MinLength] applies to strings, urls and lists, but Int32 is exported as an int variable")]
     [InlineData("[ItemRange(0, 9)] public List<string> Names { get; set; } = [];", "[ItemRange] applies to lists of integers, such as int[] or List<long>, but List is exported as a list variable")]
     [InlineData("[ItemLength(2, 4)] public List<long> Shards { get; set; } = [];", "[ItemLength] applies to lists of strings, such as string[] or List<string>, but List is exported as a list variable")]
+    [InlineData("[Csv] public string Name { get; set; } = \"\";", "[Csv] applies to lists, such as string[] or List<string>, and key sets, but String is exported as a string variable")]
     public async Task A_constraint_that_does_not_fit_the_type_is_an_error(string property, string expected)
     {
         var diagnostics = await Compiler.Analyze($$"""

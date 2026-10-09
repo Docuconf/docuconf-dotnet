@@ -55,7 +55,8 @@ internal static class DocuconfBinder
             }
 
             // A list arrives as NAME__0, NAME__1, ...; one value such as NAME=a,b would otherwise bind as an empty list.
-            if (spec.Type == VarType.List && section.Value is { Length: > 0 } scalar)
+            // A [Csv] list is that one value.
+            if (spec.Type == VarType.List && spec.Encoding != "csv" && section.Value is { Length: > 0 } scalar)
             {
                 var shown = spec.Secret ? "" : $" ('{scalar}')";
                 violations.Add(new Violation(Codes.InvalidType, spec.Name,
@@ -65,7 +66,7 @@ internal static class DocuconfBinder
 
             // The configuration binder adds every child of a list section in key order, so it would read NAME__0 and
             // NAME__2 as a two-item list, and NAME__HOST as an item. SPEC §5 makes a gap invalid_type.
-            if (spec.Type == VarType.List && WireFormat.CheckIndexGap(spec.Name, Items(section).Select(c => c.Key).ToList()) is { } gap)
+            if (spec.IsListLike && !IsCsvValue(section, spec) && WireFormat.CheckIndexGap(spec.Name, Items(section).Select(c => c.Key).ToList()) is { } gap)
             {
                 violations.Add(new Violation(gap.Code, spec.Name, gap.Message));
                 continue;
@@ -173,6 +174,17 @@ internal static class DocuconfBinder
             return ConvertList(section, spec, clr, out value);
         }
 
+        if (spec.Type == VarType.KeySet)
+        {
+            // One value split on the separator, exactly as given; or, from a provider that holds arrays, its items.
+            var keys = IsCsvValue(section, spec)
+                ? section.Value!.Split(spec.Separator ?? ",").ToList()
+                : Items(section).OrderBy(c => c.Key.Length).ThenBy(c => c.Key, StringComparer.Ordinal).Select(c => c.Value ?? "").ToList();
+            var keyProblem = Constraints.Check(spec, keys.Cast<object>().ToList());
+            value = keyProblem is null ? new KeySet(keys) : null;
+            return keyProblem;
+        }
+
         var raw = section.Value!;
         Problem? problem;
         switch (spec.Type)
@@ -224,7 +236,14 @@ internal static class DocuconfBinder
     internal static bool IsSet(IConfigurationSection section, VarSpec spec) =>
         section.Exists()
         && !(section.Value == "" && spec.Type != VarType.String)
-        && !(spec.Type == VarType.List && section.Value is null && !Items(section).Any());
+        && !(spec.IsListLike && section.Value is null && !Items(section).Any());
+
+    /// <summary>
+    /// Whether a <see cref="CsvAttribute"/> list is set as one value. An appsettings file may still give it as a JSON
+    /// array, whose items are read like an indexed list's.
+    /// </summary>
+    internal static bool IsCsvValue(IConfigurationSection section, VarSpec spec) =>
+        spec.IsListLike && spec.Encoding == "csv" && section.Value is { Length: > 0 };
 
     /// <summary>The children of a list section that are items: keys that are a decimal index with no leading zero.</summary>
     private static IEnumerable<IConfigurationSection> Items(IConfigurationSection section) =>
@@ -238,18 +257,20 @@ internal static class DocuconfBinder
     {
         value = null;
         var element = ContractReader.ElementType(clr)!;
-        var items = Items(section).OrderBy(c => c.Key.Length).ThenBy(c => c.Key, StringComparer.Ordinal).ToList();
+        // A [Csv] list is split exactly as given (SPEC §5): an empty item stays, for itemMinLength to reject.
+        var items = IsCsvValue(section, spec)
+            ? section.Value!.Split(spec.Separator ?? ",").Select((v, i) => (Key: i.ToString(CultureInfo.InvariantCulture), Value: v)).ToList()
+            : Items(section).OrderBy(c => c.Key.Length).ThenBy(c => c.Key, StringComparer.Ordinal).Select(c => (c.Key, Value: c.Value ?? "")).ToList();
         var typed = new List<object?>(items.Count);
-        foreach (var child in items)
+        foreach (var (key, raw) in items)
         {
-            var raw = child.Value ?? "";
             if (spec.Items != "int")
             {
                 typed.Add(raw);
             }
             else if ((WireFormat.ParseInt(raw, out var item) ?? WireFormat.FitsIn(item, element)) is { } problem)
             {
-                return problem with { Message = $"item {child.Key} {problem.Message}" };
+                return problem with { Message = $"item {key} {problem.Message}" };
             }
             else
             {
@@ -294,6 +315,7 @@ internal static class DocuconfBinder
         VarType.Url => "absolute URL",
         VarType.Enum => "value; expected one of " + string.Join(", ", spec.Values!),
         VarType.List => "list",
+        VarType.KeySet => "key set",
         VarType.Json => "JSON value",
         _ => "string",
     };

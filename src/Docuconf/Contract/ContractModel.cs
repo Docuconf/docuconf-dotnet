@@ -28,12 +28,27 @@ public sealed class ContractModel
     internal List<(string Key, IReadOnlyList<PropertyInfo> Path)> Unmodeled { get; } = [];
 }
 
-/// <summary>A config-file overlay: a JSON appsettings file the platform mounts (SPEC §4.7).</summary>
+/// <summary>A config-file overlay: a structured file the platform mounts (SPEC §4.7).</summary>
 /// <param name="Name">The overlay's name, a DNS label.</param>
 /// <param name="Path">Where the platform mounts the file.</param>
 /// <param name="ReloadOnChange">Whether the app reloads the file when it changes.</param>
 /// <param name="Description">What the overlay is for, if given.</param>
-public sealed record OverlaySpec(string Name, string Path, bool ReloadOnChange, string? Description);
+public sealed record OverlaySpec(string Name, string Path, bool ReloadOnChange, string? Description)
+{
+    /// <summary>The file's format: <c>json</c> for the overlays .NET declares; <c>yaml</c> or <c>toml</c> in a contract written for another host.</summary>
+    public string Format { get; init; } = "json";
+
+    /// <summary>What separates the parts of a <c>configKey</c>: <c>:</c> in .NET, <c>.</c> in Spring.</summary>
+    public string KeySeparator { get; init; } = ":";
+}
+
+/// <summary>
+/// An input marked for staged removal (SPEC §4.2): the platform should stop setting it. Setting it is a warning at
+/// boot, never an error.
+/// </summary>
+/// <param name="Message">What to use instead, or why the input is going away: not blank, at most 500 characters.</param>
+/// <param name="ReplacedBy">The input that replaces it, if any.</param>
+public sealed record DeprecationSpec(string Message, string? ReplacedBy);
 
 /// <summary>Contract variable types (SPEC §4.3).</summary>
 public enum VarType
@@ -56,6 +71,8 @@ public enum VarType
     List,
     /// <summary>A structured value sent as JSON, checked against <see cref="VarSpec.Schema"/>.</summary>
     Json,
+    /// <summary>A set of secret keys that are all valid at once, for rotation without an outage (SPEC §4.3).</summary>
+    KeySet,
 }
 
 /// <summary>One environment variable in the contract.</summary>
@@ -109,16 +126,37 @@ public sealed class VarSpec
     public int? ItemMaxLength { get; init; }
     /// <summary>
     /// The wire encoding of a list or duration (SPEC §5). Null for declared options, which .NET's configuration
-    /// binder reads as <c>indexed</c> lists and <c>timespan</c> durations.
+    /// binder reads as <c>indexed</c> lists and <c>timespan</c> durations, except <c>csv</c> for a list marked
+    /// <see cref="CsvAttribute"/>.
     /// </summary>
     public string? Encoding { get; init; }
     /// <summary>The separator of a <c>csv</c> list. Null means <c>,</c>.</summary>
     public string? Separator { get; init; }
     /// <summary>A json variable's JSON Schema, generated from its type.</summary>
     public JsonNode? Schema { get; init; }
+    /// <summary>The fewest keys of a key set; null means the contract default, 1.</summary>
+    public int? MinKeys { get; init; }
+    /// <summary>The most keys of a key set; null means the contract default, 2.</summary>
+    public int? MaxKeys { get; init; }
+    /// <summary>The shortest key of a key set, in characters.</summary>
+    public int? KeyMinLength { get; init; }
+    /// <summary>The longest key of a key set, in characters.</summary>
+    public int? KeyMaxLength { get; init; }
+    /// <summary>Set when the variable is deprecated (SPEC §4.2).</summary>
+    public DeprecationSpec? Deprecated { get; init; }
+    /// <summary>A free-form group for docs, such as <c>database</c>.</summary>
+    public string? Group { get; init; }
+    /// <summary>Example values, for docs.</summary>
+    public IReadOnlyList<string>? Examples { get; init; }
 
     internal IReadOnlyList<PropertyInfo>? PropertyPath { get; init; }
     internal Type? ClrType { get; init; }
+
+    /// <summary>The item type of a list or key set: a key set's keys are strings.</summary>
+    internal string? ItemType => Type == VarType.KeySet ? "string" : Items;
+
+    /// <summary>Whether the value is a list on the wire (SPEC §5): a list or a key set.</summary>
+    internal bool IsListLike => Type is VarType.List or VarType.KeySet;
 }
 
 /// <summary>Contract file input types (SPEC §4.6).</summary>
@@ -161,7 +199,7 @@ public sealed class FileSpec
     public Reload Reload { get; init; }
     /// <summary>Size limit in bytes.</summary>
     public long? MaxSize { get; init; }
-    /// <summary>Config file format (always json in .NET).</summary>
+    /// <summary>Config file format: <c>json</c>, <c>yaml</c> or <c>toml</c>; keystore format: <c>pkcs12</c>.</summary>
     public string? Format { get; init; }
     /// <summary>JSON Schema of a config file, generated from its type.</summary>
     public JsonNode? Schema { get; init; }
@@ -183,8 +221,14 @@ public sealed class FileSpec
     public int? MinLength { get; init; }
     /// <summary>Text: greatest length.</summary>
     public int? MaxLength { get; init; }
+    /// <summary>Set when the input is deprecated (SPEC §4.2).</summary>
+    public DeprecationSpec? Deprecated { get; init; }
+    /// <summary>A free-form group for docs.</summary>
+    public string? Group { get; init; }
 
     internal IReadOnlyList<PropertyInfo>? PropertyPath { get; init; }
+    /// <summary>A <see cref="ConfigFile{T}"/> property, which reloads the file; null for a property of the bound type.</summary>
+    internal Type? WatchedType { get; init; }
     internal IReadOnlyList<PropertyInfo>? PasswordPath { get; init; }
 }
 

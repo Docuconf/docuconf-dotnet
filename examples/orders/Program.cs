@@ -20,6 +20,20 @@ app.MapGet("/config", () => new
     orders.AllowedOrigins,
     RequestTimeout = orders.RequestTimeout.ToString(),
     orders.WorkerCount,
+    WebhookKeys = "***", // a key set is secret, set or not
+});
+
+// Payment webhooks, signed with any key in WEBHOOK_KEYS (see README.md for how to rotate it).
+app.MapPost("/webhooks/payments", async (HttpRequest request) =>
+{
+    if (await Webhook.ReadBody(request.Body) is not { } body)
+    {
+        return Results.StatusCode(StatusCodes.Status413PayloadTooLarge);
+    }
+
+    return Webhook.Verify(orders.WebhookKeys, body, request.Headers["X-Signature"])
+        ? Results.NoContent()
+        : Results.Unauthorized();
 });
 
 app.Run($"http://0.0.0.0:{orders.Port}");

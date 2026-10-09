@@ -150,7 +150,7 @@ public sealed class GatewayFiles : IDisposable
         Write("/etc/gw/routes/routes.json", """{ "items": [ { "match": "/billing", "upstream": "http://billing.svc:8080" } ] }""");
         Write("/etc/gw/license/license.key", "ABCD\n");
         Write("/etc/gw/ca/bundle.pem", Ca.Certificate.ExportCertificatePem());
-        var (leaf, key) = Ca.Issue("partner.client", Now.AddDays(-1), Now.AddDays(30));
+        var (leaf, key) = Ca.Issue("partner.client", Now.AddDays(-1), Now.AddDays(365));
         using var withKey = leaf.CopyWithPrivateKey(key);
         WriteBytes("/etc/gw/partner/keystore.p12", withKey.Export(X509ContentType.Pkcs12, "s3cret"));
     }

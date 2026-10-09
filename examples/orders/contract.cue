@@ -62,5 +62,18 @@ contract.#Contract & {
 			max: 64
 			default: 4
 		}
+		WEBHOOK_KEYS: {
+			type: "keySet"
+			description: "Keys that verify the signature on incoming payment webhooks"
+			details: "A webhook is accepted when it is signed with any key in the set. Each key is 32 to 256 characters, so an empty or truncated key fails at boot. Without this variable, the service rejects every webhook."
+			secret: true
+			configKey: "Orders:WebhookKeys"
+			encoding: "csv"
+			separator: ","
+			minKeys: 1
+			maxKeys: 2
+			keyMinLength: 32
+			keyMaxLength: 256
+		}
 	}
 }

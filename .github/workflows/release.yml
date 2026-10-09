@@ -40,8 +40,12 @@ jobs:
             10.0.x
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.24"
+          go-version: "1.25"
       - run: go install cuelang.org/go/cmd/cue@v0.17.1
+      # The shared export check compares with the CLI of the pinned docuconf-go.
+      - name: Install the docuconf CLI
+        working-directory: docuconf-go/cmd/docuconf
+        run: go install .
 
       - name: Version from tag
         run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
@@ -90,8 +94,12 @@ jobs:
             10.0.x
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.24"
+          go-version: "1.25"
       - run: go install cuelang.org/go/cmd/cue@v0.17.1
+      # The shared export check compares with the CLI of the pinned docuconf-go.
+      - name: Install the docuconf CLI
+        working-directory: docuconf-go/cmd/docuconf
+        run: go install .
 
       - name: Version from tag
         run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"

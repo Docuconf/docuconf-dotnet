@@ -15,3 +15,4 @@ DOCUCONF007 | Docuconf | Error | Patterns must be RE2
 DOCUCONF008 | Docuconf | Error | A record's ToString prints secrets
 DOCUCONF009 | Docuconf | Error | The contract cannot describe this property
 DOCUCONF010 | Docuconf | Error | A file input needs its own property type
+DOCUCONF011 | Docuconf | Error | A deprecation needs a message, and a required input cannot be deprecated
