@@ -4,6 +4,40 @@ All notable changes to Docuconf.Options are documented here. Entries after 0.1.0
 [release-please](https://github.com/googleapis/release-please) from Conventional Commit messages; see
 [CONTRIBUTING.md](CONTRIBUTING.md).
 
+## [0.1.0-alpha.2](https://github.com/Docuconf/docuconf-dotnet/compare/v0.1.0-alpha.1...v0.1.0-alpha.2) (2026-10-10)
+
+
+### ⚠ BREAKING CHANGES
+
+* values the spec does not allow are now invalid_type, from the environment and from appsettings files: a TimeSpan must be [d.]hh:mm:ss[.f] (no hh:mm, no sign), a float needs a digit on each side of its point, and a trailing newline is never trimmed. A config file that parses but does not bind to its class is schema_mismatch (was file_malformed); a tls.crt with no PEM certificate, or a tls.key that does not parse, is file_malformed; an expired keystore certificate is certificate_invalid; text file lengths count code points. VarType gains KeySet. A configKey equal to the variable's name is no longer exported unless overlays are declared, and [Range] bounds at a type's own limits are left out of generated JSON Schemas. New dependencies: YamlDotNet 16.3.0 and Tomlyn 0.19.0.
+
+### Features
+
+* beta suite (keySet, deprecated rules, strict parsing, files, profiles, overlays) ([f2e65b9](https://github.com/Docuconf/docuconf-dotnet/commit/f2e65b93d1ecd8c95950a37dd098e1add45cf5ec))
+* beta suite (keySet, deprecated rules, strict parsing, files, profiles, overlays) ([96a94de](https://github.com/Docuconf/docuconf-dotnet/commit/96a94de1d4d87443fd50c096190e113bb17e2dc3))
+* devX fixes (clean boot failure, analyzer, build-time export, testing API) ([033e2de](https://github.com/Docuconf/docuconf-dotnet/commit/033e2de6c274041545a86788a83c8ccbd3e907af))
+* **examples:** dual-key webhook key set with rotation ([16836f5](https://github.com/Docuconf/docuconf-dotnet/commit/16836f549b3938b58aaee12114aa68759be3d1a0))
+* **examples:** dual-key webhook key set with rotation; csv lists ([c6587a9](https://github.com/Docuconf/docuconf-dotnet/commit/c6587a9eff18044b8ac2c67b428e7d2268136e8f))
+* export description and details from doc comments ([7253012](https://github.com/Docuconf/docuconf-dotnet/commit/72530124a8e295b17a70f0f5ee113a9ee0684847))
+* export description and details from doc comments ([3d4d078](https://github.com/Docuconf/docuconf-dotnet/commit/3d4d078a1692534bcd4f30a7b39e120aa084fe0b))
+* full conformance (no skipped capability tags) ([6f54bed](https://github.com/Docuconf/docuconf-dotnet/commit/6f54bed12b87787ea6cde6f2fb7b832fc8f2f240))
+* full conformance (no skipped capability tags) ([8c8e226](https://github.com/Docuconf/docuconf-dotnet/commit/8c8e226f2474a67d9ad139f412e8db1d6df3ee0f))
+* maxLength on url/json and item length limits on string lists ([874a4f3](https://github.com/Docuconf/docuconf-dotnet/commit/874a4f33c995b5d65e04643827ee4952dcd96997))
+* maxLength on url/json and item length limits on string lists ([ee06699](https://github.com/Docuconf/docuconf-dotnet/commit/ee0669992975d2e79002fb00ea32cab9d344385d))
+* reload hooks and status; one empty-key message ([d2d45b8](https://github.com/Docuconf/docuconf-dotnet/commit/d2d45b85efdf1dcee70909dc28570b7f675da304))
+* reload hooks and status; one empty-key message ([a583052](https://github.com/Docuconf/docuconf-dotnet/commit/a583052c9e64dc37add670e27fb69f546f03326a))
+
+
+### Bug Fixes
+
+* contract check ignores metadata.generator.version ([bbe6003](https://github.com/Docuconf/docuconf-dotnet/commit/bbe6003e00275fd4ce817016b590bdd80b3e2a44))
+
+
+### Documentation
+
+* **examples:** length limits and generated CONFIG docs ([e0512df](https://github.com/Docuconf/docuconf-dotnet/commit/e0512dfa998fd499006ac7d2328cd8381062a0a9))
+* link docuconf.dev ([bbe0593](https://github.com/Docuconf/docuconf-dotnet/commit/bbe0593a0b7a3708a0452ebd04cb804da1d58f90))
+
 ## 0.1.0-alpha.1
 
 First version: typed configuration contracts for the .NET Options pattern, implementing spec `v1alpha1`.
