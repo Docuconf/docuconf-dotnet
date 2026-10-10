@@ -70,7 +70,7 @@ ORDERS__PORT=$port ORDERS__DATABASEURL="$secret" WEBHOOK_KEYS="$old_key," dotnet
 code=$?
 set -e
 expected='docuconf: 1 configuration problem:
-  [out_of_range] WEBHOOK_KEYS: key 1 is empty (value redacted)'
+  [out_of_range] WEBHOOK_KEYS: key 2 is empty'
 if [ "$code" != 1 ] || [ "$(cat "$tmp/bad.txt")" != "$expected" ] || grep -q webhook-key "$tmp/bad.txt"; then
   echo "want exit 1 for an empty webhook key, got $code:" >&2; diff <(echo "$expected") "$tmp/bad.txt" >&2; exit 1
 fi

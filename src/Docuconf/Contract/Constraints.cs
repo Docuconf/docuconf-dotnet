@@ -68,9 +68,9 @@ internal static class Constraints
                 for (int i = 0; i < keys.Count; i++)
                 {
                     int n = Length((string)keys[i]);
-                    if (n == 0) return OutOfRange($"key {i} is empty");
-                    if (spec.KeyMinLength is int keyMin && n < keyMin) return OutOfRange($"key {i} is {n} characters, below keyMinLength {keyMin}");
-                    if (spec.KeyMaxLength is int keyMax && n > keyMax) return OutOfRange($"key {i} is {n} characters, above keyMaxLength {keyMax}");
+                    if (n == 0) return OutOfRange($"key {i + 1} is empty");
+                    if (spec.KeyMinLength is int keyMin && n < keyMin) return OutOfRange($"key {i + 1} is {n} characters, below keyMinLength {keyMin}");
+                    if (spec.KeyMaxLength is int keyMax && n > keyMax) return OutOfRange($"key {i + 1} is {n} characters, above keyMaxLength {keyMax}");
                 }
 
                 int minKeys = spec.MinKeys ?? 1, maxKeys = spec.MaxKeys ?? 2;
@@ -91,6 +91,12 @@ internal static class Constraints
                 return new Problem(Codes.InvalidType, $"is not a valid {spec.Type.ToString().ToLowerInvariant()}");
         }
     }
+
+    /// <summary>
+    /// The note after a secret's problem message. A key set's messages name keys by position and never hold one, so
+    /// they read exactly as SPEC §4.3 words them (<c>key 2 is empty</c>), with no note.
+    /// </summary>
+    public static string Redacted(VarSpec spec) => spec.Secret && spec.Type != VarType.KeySet ? " (value redacted)" : "";
 
     private static Problem OutOfRange(string message) => new(Codes.OutOfRange, message);
 

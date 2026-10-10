@@ -275,10 +275,10 @@ on the separator exactly as given, so `a, b` is `a` and ` b`, and a trailing com
 | `[JsonVar]` on a class | One variable holding JSON, checked against the class (see below). |
 | `[JsonVar(MaxLength = 256)]` | Bounds a `json` value's length in characters, measured as received (`maxLength`). |
 | `[External("KeyVault")]` | Supplied by a provider the platform does not control; left out of the contract. Dictionaries and lists of objects need it (or `[JsonVar]`). |
-| `[TlsFile(dir)]` on a `TlsKeyPair` | `tls.crt`, `tls.key`, optional `ca.crt`. Checked for key match, expiry (`MinRemaining`), `DnsNames`, `KeyAlgorithms`, and the chain to `ca.crt` (`RequireCA`). `.Current` reloads rotated certificates. |
+| `[TlsFile(dir)]` on a `TlsKeyPair` | `tls.crt`, `tls.key`, optional `ca.crt`. Checked for key match, expiry (`MinRemaining`), `DnsNames`, `KeyAlgorithms`, and the chain to `ca.crt` (`RequireCA`). `.Current` reloads rotated certificates once they pass the same checks (see [Using a watched value](#using-a-watched-value)). |
 | `[ConfigFile(path)]` on any class | A JSON, YAML or TOML file (by its extension, or `Format = "yaml"`) deserialized into that class. The contract carries a JSON Schema generated from it. On a `ConfigFile<T>`, `.Value` reloads the file when it changes, which `Reload = Reload.Watch` needs. |
 | `[CaBundleFile(path)]` on a `CaBundle` | PEM CA certificates. |
-| `[KeystoreFile(path, PasswordProperty = ...)]` on a `Keystore` | A PKCS#12 keystore; its password is a `[Secret]` property. |
+| `[KeystoreFile(path, PasswordProperty = ...)]` on a `Keystore` | A PKCS#12 keystore; its password is a `[Secret]` property. `.Current` opens it with that password and reloads it when it changes. |
 | `[TextFile(path, Pattern = ...)]` on a `string` | A text file such as a licence key; the property receives the content. |
 | `[BinaryFile(path)]` on a `BinaryFile` | Opaque bytes. |
 
@@ -338,6 +338,88 @@ A config file may be JSON, YAML (read with [YamlDotNet](https://github.com/aaubr
 or TOML (read with [Tomlyn](https://github.com/xoofx/Tomlyn)); YAML and TOML are converted to JSON and bound the same
 way. A file that does not parse is `file_malformed`; one that parses but does not bind to the class (a wrong type, an
 unknown property) or breaks its DataAnnotations is `schema_mismatch`.
+
+### Using a watched value
+
+`Reload = Reload.Watch` tells the platform not to restart the pods when the file changes, because the app picks the
+new file up itself (SPEC §4.6.2). docuconf reloads it through the input's handle: `ConfigFile<T>.Value`,
+`TlsKeyPair.Current` and `Keystore.Current`. A changed file replaces the value only once it passes the checks it
+passed at startup (a TLS pair's key match, expiry, names and chain; a keystore's password; a config file's format and
+type); otherwise the previous value stays and the rejection shows in `Status`. The files are looked at, at most every
+10 seconds for a config file and every 30 for a TLS pair or a keystore, by the read that notices the change, and by a
+timer while an `OnChange` callback is registered, so callbacks run even when nothing reads the value.
+
+A value copied once at startup never sees a reload: a TLS server context, an `HttpClient` or a pool built from it keeps
+the old certificate until it expires. Read the handle on every use, or rebuild in an `OnChange` callback. A TLS
+server reads it on each handshake:
+
+```csharp
+builder.WebHost.ConfigureKestrel(kestrel => kestrel.ConfigureHttpsDefaults(https =>
+{
+    var tls = kestrel.ApplicationServices.GetRequiredService<IOptions<BillingOptions>>().Value.ServingCertificate;
+    https.ServerCertificateSelector = (_, _) => tls.Current;   // cheap: the files are looked at every 30 s at most
+}));
+```
+
+An HTTP client with a client certificate is rebuilt when the keystore changes:
+
+```csharp
+[ConfigContract("partner-client", Section = "Partner")]
+public sealed class PartnerOptions
+{
+    [Required, Secret]
+    [Description("Password of the partner keystore")]
+    public string? KeystorePassword { get; set; }
+
+    [KeystoreFile("/etc/partner/keystore.p12", PasswordProperty = nameof(KeystorePassword), Reload = Reload.Watch)]
+    [Description("Client certificate for the partner API")]
+    public Keystore? ClientCertificate { get; set; }
+}
+
+public sealed class PartnerClient : IDisposable
+{
+    private readonly IDisposable _subscription;
+    private volatile HttpClient _client;
+
+    public PartnerClient(IOptions<PartnerOptions> options)
+    {
+        var keystore = options.Value.ClientCertificate!;
+        _client = Create(keystore.Current);
+        // Called with the new certificate after a changed keystore passes the checks; never for a rejected one.
+        _subscription = keystore.OnChange(certificate => _client = Create(certificate));
+    }
+
+    public HttpClient Client => _client;
+
+    private static HttpClient Create(X509Certificate2 certificate) =>
+        new(new SocketsHttpHandler { SslOptions = { ClientCertificates = [certificate] } });
+
+    public void Dispose() => _subscription.Dispose();
+}
+```
+
+`OnChange(callback)` returns an `IDisposable` that unsubscribes. Several callbacks may be registered; they run one
+after another, after the new value has replaced the old one. One that throws is logged by input name and exception
+type only (`docuconf: warning: partner: an OnChange callback threw System.InvalidOperationException`), and the others
+and the reload carry on. Each handle is also an `IWatchedInput`, whose `GetReloadToken()` is an `IChangeToken` for
+`ChangeToken.OnChange(watched.GetReloadToken, ...)`, the host's own change-notification idiom.
+
+`Status` reports each watched input's reloads, for a health check or a metric, and never holds file content:
+
+```csharp
+ReloadStatus status = options.ServingCertificate.Status;
+// status.Generation: 1 after startup, plus one per accepted reload
+// status.LastReload: when the last accepted reload happened (null until one has)
+// status.LastRejection: the last rejected change (At, Input, Codes such as ["key_mismatch"]),
+//                       cleared when a later change is accepted
+return status.LastRejection is { } rejected
+    ? HealthCheckResult.Degraded($"{rejected.Input}: change rejected at {rejected.At:u} ({string.Join(", ", rejected.Codes)})")
+    : HealthCheckResult.Healthy($"generation {status.Generation}");
+```
+
+A rejected change is also logged once, by input name and codes. A keystore reload reuses the password read at
+startup, because environment variables do not change in a running process: a keystore re-encrypted with a new password
+is rejected as `keystore_unreadable` and the previous certificate stays. Rotating a keystore's password needs a rollout.
 
 ### Analyzer
 
@@ -447,7 +529,8 @@ The mode covers the whole contract. Values are layered as a host with config fil
 default, then the selected profile's default (`profiles`, picked by the selector variable), then each overlay
 (`overlays`, in json, yaml or toml, values at their `configKey`), then the environment. File inputs are loaded from
 their paths, or the `pathEnv` variable's, and checked as declared ones are: a `config` file (json, yaml or toml) against
-its JSON Schema and returned as a `JsonNode`, a `text` file as its text, and a `TlsKeyPair`, `CaBundle`, PKCS#12
+its JSON Schema and returned as a `JsonNode` (one declared `reload: watch` as a `ConfigFile<JsonNode>` that reloads it
+with the same hooks and status, which `Get<JsonNode>` also reads as its current data), a `text` file as its text, and a `TlsKeyPair`, `CaBundle`, PKCS#12
 `Keystore` or `BinaryFile` otherwise. Files and overlays are read under `DOCUCONF_FILE_ROOT` when it is set (or
 `DocuconfSettings.FileRoot`). A deprecated input that is set is a warning in `ContractLoadResult.Warnings`, which
 `Load` writes to stderr. A `json` value is checked against the variable's JSON Schema (draft

@@ -35,7 +35,9 @@ internal static class FileChecks
         foreach (var spec in model.Files.Values)
         {
             var path = Locate(spec, Lookup(configuration), root);
-            string? Password() => spec.PasswordPath is null ? null : DocuconfBinder.GetPath(target, spec.PasswordPath) as string;
+            // Read once: a reload reuses the password read at startup, since the environment does not change.
+            var bootPassword = spec.PasswordPath is null ? null : DocuconfBinder.GetPath(target, spec.PasswordPath) as string;
+            string? Password() => bootPassword;
             var configType = spec.Type == FileType.Config ? spec.WatchedType ?? spec.PropertyPath![^1].PropertyType : null;
             var now = settings.Clock();
             if (!TryLoad(spec, path, Password, now, configType, violations, out var value))
@@ -45,12 +47,9 @@ internal static class FileChecks
 
             object? bound = spec.Type switch
             {
-                FileType.Config when spec.WatchedType is { } watched => Watched(watched, spec, path, value, Password, settings.Clock, configType!),
+                FileType.Config when spec.WatchedType is { } watched => WatchedConfig(watched, spec, path, value, settings.Clock, settings.Error),
                 FileType.Config or FileType.Text => value,
-                FileType.Tls => new TlsKeyPair { Directory = path },
-                FileType.CaBundle => new CaBundle { Path = path },
-                FileType.Keystore => new Keystore { Path = path },
-                _ => new BinaryFile { Path = path },
+                _ => Handle(spec, path, Password, settings.Clock, settings.Error),
             };
             DocuconfBinder.SetPath(target, spec.PropertyPath!, bound);
         }
@@ -58,30 +57,72 @@ internal static class FileChecks
 
     /// <summary>
     /// Loads every file input of a contract (the contract-first mode): a <c>config</c> file as its data
-    /// (<see cref="JsonNode"/>), a <c>text</c> file as its text, and the others as <see cref="TlsKeyPair"/>,
+    /// (<see cref="JsonNode"/>, or a <see cref="ConfigFile{T}"/> of it that reloads the file when it is declared
+    /// <c>reload: watch</c>), a <c>text</c> file as its text, and the others as <see cref="TlsKeyPair"/>,
     /// <see cref="CaBundle"/>, <see cref="Keystore"/> or <see cref="BinaryFile"/>. An absent optional input is null.
     /// </summary>
     public static Dictionary<string, object?> LoadContract(
-        ContractModel model, Func<string, string?> lookup, string root, DateTimeOffset now, Func<string, string?> password, List<Violation> violations)
+        ContractModel model, Func<string, string?> lookup, string root, Func<DateTimeOffset> clock, TextWriter log, Func<string, string?> password, List<Violation> violations)
     {
         var values = new Dictionary<string, object?>(StringComparer.Ordinal);
         foreach (var spec in model.Files.Values)
         {
             var path = Locate(spec, lookup, root);
-            values[spec.Name] = TryLoad(spec, path, () => spec.PasswordVar is { } v ? password(v) : null, now, null, violations, out var value)
+            var bootPassword = spec.PasswordVar is { } v ? password(v) : null;
+            string? Password() => bootPassword;
+            values[spec.Name] = TryLoad(spec, path, Password, clock(), null, violations, out var value)
                 ? spec.Type switch
                 {
+                    FileType.Config when spec.Reload == Reload.Watch => WatchedConfig(typeof(JsonNode), spec, path, value, clock, log),
                     FileType.Config or FileType.Text => value,
-                    FileType.Tls => new TlsKeyPair { Directory = path },
-                    FileType.CaBundle => new CaBundle { Path = path },
-                    FileType.Keystore => new Keystore { Path = path },
-                    _ => new BinaryFile { Path = path },
+                    _ => Handle(spec, path, Password, clock, log),
                 }
                 : null;
         }
 
         return values;
     }
+
+    /// <summary>The handle of a TLS, CA bundle, keystore or binary input; TLS and keystore handles reload checked.</summary>
+    private static object Handle(FileSpec spec, string path, Func<string?> password, Func<DateTimeOffset> clock, TextWriter log) => spec.Type switch
+    {
+        FileType.Tls => new TlsKeyPair
+        {
+            Directory = path,
+            Watcher = new Watcher<X509Certificate2>(
+                spec.Name,
+                [Path.Join(path, "tls.crt"), Path.Join(path, "tls.key"), Path.Join(path, "ca.crt")],
+                HandleInterval,
+                () => TlsKeyPair.LoadPem(Path.Join(path, "tls.crt"), Path.Join(path, "tls.key")),
+                problems => TryLoad(spec, path, password, clock(), null, problems, out _)
+                    ? TlsKeyPair.LoadPem(Path.Join(path, "tls.crt"), Path.Join(path, "tls.key"))
+                    : null,
+                clock,
+                log),
+        },
+        FileType.Keystore => new Keystore
+        {
+            Path = path,
+            Watcher = new Watcher<X509Certificate2>(
+                spec.Name,
+                [path],
+                HandleInterval,
+                () => Pkcs12Loader.Load(File.ReadAllBytes(path), password() ?? ""),
+                problems => TryLoad(spec, path, password, clock(), null, problems, out _)
+                    ? Pkcs12Loader.Load(File.ReadAllBytes(path), password() ?? "")
+                    : null,
+                clock,
+                log),
+        },
+        FileType.CaBundle => new CaBundle { Path = path },
+        _ => new BinaryFile { Path = path },
+    };
+
+    /// <summary>How often a TLS pair or a keystore is looked at, at most, as <see cref="TlsKeyPair.Current"/> always did.</summary>
+    private static readonly TimeSpan HandleInterval = TimeSpan.FromSeconds(30);
+
+    /// <summary>How often a watched config file is looked at, at most.</summary>
+    private static readonly TimeSpan ConfigInterval = TimeSpan.FromSeconds(10);
 
     /// <summary>Whether a file input is there, for the boot warning about deprecated inputs.</summary>
     public static bool Exists(FileSpec spec, string path) =>
@@ -566,17 +607,25 @@ internal static class FileChecks
         var oid => oid ?? "unknown",
     };
 
-    /// <summary>A <see cref="ConfigFile{T}"/> for a watched config file.</summary>
-    private static object Watched(Type type, FileSpec spec, string path, object? initial, Func<string?> password, Func<DateTimeOffset> clock, Type configType)
-    {
-        object? Reload()
-        {
-            var problems = new List<Violation>();
-            return TryLoad(spec, path, password, clock(), configType, problems, out var value) ? value : null;
-        }
+    /// <summary>A <see cref="ConfigFile{T}"/> for a watched config file, bound to <paramref name="type"/>.</summary>
+    private static object WatchedConfig(Type type, FileSpec spec, string path, object? initial, Func<DateTimeOffset> clock, TextWriter log) =>
+        typeof(FileChecks).GetMethod(nameof(MakeConfigFile), BindingFlags.NonPublic | BindingFlags.Static)!
+            .MakeGenericMethod(type).Invoke(null, [spec, path, initial, clock, log])!;
 
-        var wrapper = typeof(ConfigFile<>).MakeGenericType(type);
-        return Activator.CreateInstance(wrapper, BindingFlags.NonPublic | BindingFlags.Instance, null, [path, initial, (Func<object?>)Reload], null)!;
+    private static ConfigFile<T> MakeConfigFile<T>(FileSpec spec, string path, object? initial, Func<DateTimeOffset> clock, TextWriter log)
+        where T : class
+    {
+        // The contract-first mode checks a JsonNode against the schema; a declared one binds to T.
+        var configType = typeof(T) == typeof(JsonNode) ? null : typeof(T);
+        var watcher = new Watcher<T>(
+            spec.Name,
+            [path],
+            ConfigInterval,
+            () => (T)initial!,
+            problems => TryLoad(spec, path, () => null, clock(), configType, problems, out var value) ? value as T : null,
+            clock,
+            log);
+        return new ConfigFile<T>(path, watcher);
     }
 
     /// <summary>

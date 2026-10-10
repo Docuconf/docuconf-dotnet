@@ -60,8 +60,12 @@ public sealed class DocuconfContract
     /// <summary>
     /// Validates <paramref name="environment"/> (the process environment when null) with <paramref name="settings"/>:
     /// its <see cref="DocuconfSettings.FileRoot"/> and <see cref="DocuconfSettings.Clock"/>. The typed values include
-    /// each file input, by name: a <c>config</c> file's data as a <see cref="JsonNode"/>, a <c>text</c> file's text,
-    /// and a <see cref="TlsKeyPair"/>, <see cref="CaBundle"/>, <see cref="Keystore"/> or <see cref="BinaryFile"/>.
+    /// each file input, by name: a <c>config</c> file's data as a <see cref="JsonNode"/> (for one declared
+    /// <c>reload: watch</c>, a <see cref="ConfigFile{T}"/> of <see cref="JsonNode"/> that reloads it, which
+    /// <see cref="ContractValues.Get{T}(string)"/> also reads as its current <see cref="JsonNode"/>), a <c>text</c> file's
+    /// text, and a <see cref="TlsKeyPair"/>, <see cref="CaBundle"/>, <see cref="Keystore"/> or <see cref="BinaryFile"/>.
+    /// The TLS pair, the keystore and a watched config file reload with the same checks as at startup; see
+    /// <see cref="IWatchedInput"/>.
     /// </summary>
     public ContractLoadResult Validate(IReadOnlyDictionary<string, string>? environment, DocuconfSettings? settings)
     {
@@ -94,8 +98,9 @@ public sealed class DocuconfContract
 
         string? Password(string name) =>
             values.GetValueOrDefault(name) as string ?? (environment.TryGetValue(name, out var raw) ? raw : null);
-        var now = settings?.Clock() ?? DateTimeOffset.UtcNow;
-        foreach (var (name, value) in FileChecks.LoadContract(Model, n => environment.GetValueOrDefault(n), root, now, Password, violations))
+        var clock = settings?.Clock ?? (() => DateTimeOffset.UtcNow);
+        var log = settings?.Error ?? Console.Error;
+        foreach (var (name, value) in FileChecks.LoadContract(Model, n => environment.GetValueOrDefault(n), root, clock, log, Password, violations))
         {
             values[name] = value;
             if (value is not null && Model.Files[name].Deprecated is { } deprecation)
@@ -261,6 +266,12 @@ public sealed class ContractValues : IReadOnlyDictionary<string, object?>
         if (value is T typed)
         {
             return typed;
+        }
+
+        // A config file declared reload: watch is a ConfigFile<JsonNode>; read as a JsonNode, it is its current data.
+        if (value is ConfigFile<JsonNode> watched && typeof(T) == typeof(JsonNode))
+        {
+            return (T?)(object?)watched.Value;
         }
 
         var target = Nullable.GetUnderlyingType(typeof(T)) ?? typeof(T);
@@ -444,7 +455,7 @@ internal static partial class ContractFirstLoader
         if (problem is not null)
         {
             bool show = !spec.Secret && raw is not null && spec.Type is not (VarType.List or VarType.Json or VarType.KeySet);
-            violations.Add(new Violation(problem.Code, spec.Name, source + (show ? $"'{raw}' " : "") + problem.Message + (spec.Secret ? " (value redacted)" : "")));
+            violations.Add(new Violation(problem.Code, spec.Name, source + (show ? $"'{raw}' " : "") + problem.Message + Constraints.Redacted(spec)));
             return null;
         }
 

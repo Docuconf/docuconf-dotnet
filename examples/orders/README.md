@@ -79,7 +79,7 @@ at startup instead of locking out the sender, and the error never shows a key:
 $ ORDERS__DATABASEURL=postgres://orders:pw@localhost:5432/orders \
     WEBHOOK_KEYS=old-webhook-key-0123456789abcdef0123, dotnet run
 docuconf: 1 configuration problem:
-  [out_of_range] WEBHOOK_KEYS: key 1 is empty (value redacted)
+  [out_of_range] WEBHOOK_KEYS: key 2 is empty
 ```
 
 [`WebhookTests.cs`](../orders.Tests/WebhookTests.cs) walks through a rotation, and [`smoke.sh`](smoke.sh) posts
