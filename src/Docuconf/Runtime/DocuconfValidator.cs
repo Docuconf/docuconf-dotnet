@@ -76,7 +76,7 @@ internal sealed class DocuconfValidateOptions<T>(IConfiguration configuration) :
         }
 
         bool show = !spec.Secret && raw is not null && spec.Type != VarType.List;
-        violations.Add(new Violation(problem.Code, spec.Name, (show ? $"'{raw}' " : "") + problem.Message + (spec.Secret ? " (value redacted)" : "")));
+        violations.Add(new Violation(problem.Code, spec.Name, (show ? $"'{raw}' " : "") + problem.Message + Constraints.Redacted(spec)));
     }
 
     /// <summary>A bound value in the form <see cref="Constraints.Check"/> takes, or null for types it does not check here.</summary>

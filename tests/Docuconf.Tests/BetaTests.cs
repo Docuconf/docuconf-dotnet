@@ -126,6 +126,23 @@ public sealed class KeySetTypeTests
         Assert.Equal(("HOOKS__APIKEYS", "out_of_range"), (problem.Input, problem.Code));
     }
 
+    // One wording for an empty key in both modes (SPEC §4.3): its 1-based position, never a key.
+    [Theory]
+    [InlineData("old-key-0123;", "key 2 is empty")]
+    [InlineData(";new-key-0123", "key 1 is empty")]
+    [InlineData("a-key-0123;;b-key-0123", "key 2 is empty")]
+    public void An_empty_key_is_named_by_its_position(string value, string message)
+    {
+        var declared = Assert.Single(DocuconfTesting.Validate<HookOptions>(Env(("HOOKS__APIKEYS", value))));
+        Assert.Equal(("out_of_range", message), (declared.Code, declared.Message));
+
+        var model = ContractReader.Read([typeof(HookOptions)]);
+        var contract = DocuconfContract.FromJson(CueWriter.WriteJson(model, new CueWriter.Generator("Docuconf.Options", "0.1.0-test")));
+        var loaded = Assert.Single(contract.Validate(Env(("HOOKS__APIKEYS", value))).Violations);
+        Assert.Equal(("out_of_range", message), (loaded.Code, loaded.Message));
+        Assert.DoesNotContain("key-0123", loaded.ToString(), StringComparison.Ordinal);
+    }
+
     [Fact]
     public void A_key_set_is_exported_as_a_secret_keySet()
     {

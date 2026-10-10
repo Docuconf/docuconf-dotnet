@@ -91,7 +91,7 @@ internal static class DocuconfBinder
                 if (Convert(section, spec, out var value) is { } problem)
                 {
                     var shown = spec.Secret || spec.Type == VarType.List ? "" : $"'{section.Value}' ";
-                    violations.Add(new Violation(problem.Code, spec.Name, shown + problem.Message + (spec.Secret ? " (value redacted)" : "")));
+                    violations.Add(new Violation(problem.Code, spec.Name, shown + problem.Message + Constraints.Redacted(spec)));
                     continue;
                 }
 

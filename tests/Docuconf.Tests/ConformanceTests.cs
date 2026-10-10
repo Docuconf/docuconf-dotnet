@@ -217,6 +217,12 @@ public sealed class ConformanceTests
 
         if (model.Files.TryGetValue(name, out var file))
         {
+            // A config file declared reload: watch comes back as a ConfigFile<JsonNode> of its current data.
+            if (actual is ConfigFile<JsonNode> watched)
+            {
+                actual = watched.Value;
+            }
+
             bool same = file.Type switch
             {
                 FileType.Config => actual is JsonNode data && JsonEquals(expected, data),
