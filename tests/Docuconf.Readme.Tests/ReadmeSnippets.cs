@@ -2,8 +2,13 @@
 // ReadmeTests fails when a README block is not found in one of these files; edit both together.
 using System.ComponentModel;
 using System.ComponentModel.DataAnnotations;
+using System.Security.Cryptography.X509Certificates;
 using Docuconf;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
+using Microsoft.Extensions.Options;
 using Orders.Api;
 
 namespace Docuconf.Readme.Tests;
@@ -93,5 +98,70 @@ public static class Snippets
         long port = config.Get<long>("PORT");
         int workers = config.Get<int>("WORKERS");   // converts, or throws when the value does not fit
         _ = (port, workers);
+    }
+
+    public static void ServingCertificatePerHandshake(string[] args)
+    {
+        var builder = WebApplication.CreateBuilder(args);
+        builder.WebHost.ConfigureKestrel(kestrel => kestrel.ConfigureHttpsDefaults(https =>
+        {
+            var tls = kestrel.ApplicationServices.GetRequiredService<IOptions<BillingOptions>>().Value.ServingCertificate;
+            https.ServerCertificateSelector = (_, _) => tls.Current;   // cheap: the files are looked at every 30 s at most
+        }));
+    }
+
+    public static HealthCheckResult ReloadHealth(BillingOptions options)
+    {
+        ReloadStatus status = options.ServingCertificate.Status;
+        // status.Generation: 1 after startup, plus one per accepted reload
+        // status.LastReload: when the last accepted reload happened (null until one has)
+        // status.LastRejection: the last rejected change (At, Input, Codes such as ["key_mismatch"]),
+        //                       cleared when a later change is accepted
+        return status.LastRejection is { } rejected
+            ? HealthCheckResult.Degraded($"{rejected.Input}: change rejected at {rejected.At:u} ({string.Join(", ", rejected.Codes)})")
+            : HealthCheckResult.Healthy($"generation {status.Generation}");
+    }
+}
+
+[ConfigContract("partner-client", Section = "Partner")]
+public sealed class PartnerOptions
+{
+    [Required, Secret]
+    [Description("Password of the partner keystore")]
+    public string? KeystorePassword { get; set; }
+
+    [KeystoreFile("/etc/partner/keystore.p12", PasswordProperty = nameof(KeystorePassword), Reload = Reload.Watch)]
+    [Description("Client certificate for the partner API")]
+    public Keystore? ClientCertificate { get; set; }
+}
+
+public sealed class PartnerClient : IDisposable
+{
+    private readonly IDisposable _subscription;
+    private volatile HttpClient _client;
+
+    public PartnerClient(IOptions<PartnerOptions> options)
+    {
+        var keystore = options.Value.ClientCertificate!;
+        _client = Create(keystore.Current);
+        // Called with the new certificate after a changed keystore passes the checks; never for a rejected one.
+        _subscription = keystore.OnChange(certificate => _client = Create(certificate));
+    }
+
+    public HttpClient Client => _client;
+
+    private static HttpClient Create(X509Certificate2 certificate) =>
+        new(new SocketsHttpHandler { SslOptions = { ClientCertificates = [certificate] } });
+
+    public void Dispose() => _subscription.Dispose();
+}
+
+public class PartnerOptionsTests
+{
+    [Fact]
+    public void The_watched_keystore_declaration_is_valid()
+    {
+        var problem = Assert.Single(DocuconfTesting.Validate<PartnerOptions>(new Dictionary<string, string>()));
+        Assert.Equal(("missing_required", "PARTNER__KEYSTOREPASSWORD"), (problem.Code, problem.Input));
     }
 }

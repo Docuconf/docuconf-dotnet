@@ -364,17 +364,26 @@ builder.WebHost.ConfigureKestrel(kestrel => kestrel.ConfigureHttpsDefaults(https
 An HTTP client with a client certificate is rebuilt when the keystore changes:
 
 ```csharp
-// In BillingOptions:
-//   [KeystoreFile("/etc/billing/partner/keystore.p12", PasswordProperty = nameof(PartnerPassword), Reload = Reload.Watch)]
-//   public Keystore? PartnerKeystore { get; set; }
+[ConfigContract("partner-client", Section = "Partner")]
+public sealed class PartnerOptions
+{
+    [Required, Secret]
+    [Description("Password of the partner keystore")]
+    public string? KeystorePassword { get; set; }
+
+    [KeystoreFile("/etc/partner/keystore.p12", PasswordProperty = nameof(KeystorePassword), Reload = Reload.Watch)]
+    [Description("Client certificate for the partner API")]
+    public Keystore? ClientCertificate { get; set; }
+}
+
 public sealed class PartnerClient : IDisposable
 {
     private readonly IDisposable _subscription;
     private volatile HttpClient _client;
 
-    public PartnerClient(IOptions<BillingOptions> options)
+    public PartnerClient(IOptions<PartnerOptions> options)
     {
-        var keystore = options.Value.PartnerKeystore!;
+        var keystore = options.Value.ClientCertificate!;
         _client = Create(keystore.Current);
         // Called with the new certificate after a changed keystore passes the checks; never for a rejected one.
         _subscription = keystore.OnChange(certificate => _client = Create(certificate));
