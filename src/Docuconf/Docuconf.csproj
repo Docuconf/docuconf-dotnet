@@ -4,7 +4,7 @@
     <TargetFrameworks>net8.0;net10.0</TargetFrameworks>
     <RootNamespace>Docuconf</RootNamespace>
     <PackageId>Docuconf.Options</PackageId>
-    <Version>0.1.0-alpha.1</Version>
+    <Version>0.1.0-alpha.2</Version>
     <Description>Typed configuration contracts for the .NET Options pattern and appsettings, validated by your Kubernetes platform before deploy and by your app at startup.</Description>
     <PackageTags>configuration;options;kubernetes;cue;crossplane;validation</PackageTags>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
@@ -20,15 +20,15 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <None Include="..\..\README.md" Pack="true" PackagePath="\" />
+    <None Include="..\..\README.md" Pack="true" PackagePath="\"/>
     <!-- The build-time export target, for the app and for apps that reference it transitively. -->
-    <None Include="build\Docuconf.Options.targets" Pack="true" PackagePath="build;buildTransitive" />
+    <None Include="build\Docuconf.Options.targets" Pack="true" PackagePath="build;buildTransitive"/>
   </ItemGroup>
 
   <!-- The declaration analyzer ships in the package, so declaration errors show in the IDE and fail the build. -->
   <ItemGroup>
-    <ProjectReference Include="..\Docuconf.Analyzers\Docuconf.Analyzers.csproj" ReferenceOutputAssembly="false" PrivateAssets="all" />
-    <None Include="..\Docuconf.Analyzers\bin\$(Configuration)\netstandard2.0\Docuconf.Analyzers.dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />
+    <ProjectReference Include="..\Docuconf.Analyzers\Docuconf.Analyzers.csproj" ReferenceOutputAssembly="false" PrivateAssets="all"/>
+    <None Include="..\Docuconf.Analyzers\bin\$(Configuration)\netstandard2.0\Docuconf.Analyzers.dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false"/>
   </ItemGroup>
 
   <!--
@@ -38,19 +38,19 @@
     win over it and be copied. The app still runs on the patched shared framework it is deployed with.
   -->
   <ItemGroup Condition="'$(TargetFramework)' == 'net8.0'">
-    <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="8.0.0" />
-    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="8.0.0" />
-    <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="8.0.0" />
-    <PackageReference Include="Microsoft.Extensions.Options.DataAnnotations" Version="8.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="8.0.0"/>
+    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="8.0.0"/>
+    <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="8.0.0"/>
+    <PackageReference Include="Microsoft.Extensions.Options.DataAnnotations" Version="8.0.0"/>
     <!-- JsonSchemaExporter (the JSON Schema in a contract) ships in System.Text.Json 9+; the lowest such major. -->
-    <PackageReference Include="System.Text.Json" Version="9.0.20" />
+    <PackageReference Include="System.Text.Json" Version="9.0.20"/>
   </ItemGroup>
 
   <ItemGroup Condition="'$(TargetFramework)' == 'net10.0'">
-    <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="10.0.12" />
-    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="10.0.12" />
-    <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="10.0.12" />
-    <PackageReference Include="Microsoft.Extensions.Options.DataAnnotations" Version="10.0.12" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="10.0.12"/>
+    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="10.0.12"/>
+    <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="10.0.12"/>
+    <PackageReference Include="Microsoft.Extensions.Options.DataAnnotations" Version="10.0.12"/>
   </ItemGroup>
 
   <!--
@@ -58,7 +58,7 @@
     the last MIT-licensed major; later majors moved to a commercial licence.
   -->
   <ItemGroup>
-    <PackageReference Include="JsonSchema.Net" Version="8.0.5" />
+    <PackageReference Include="JsonSchema.Net" Version="8.0.5"/>
   </ItemGroup>
 
   <!--
@@ -67,12 +67,12 @@
     the app's build.
   -->
   <ItemGroup>
-    <PackageReference Include="YamlDotNet" Version="16.3.0" />
-    <PackageReference Include="Tomlyn" Version="0.19.0" />
+    <PackageReference Include="YamlDotNet" Version="16.3.0"/>
+    <PackageReference Include="Tomlyn" Version="0.19.0"/>
   </ItemGroup>
 
   <ItemGroup>
-    <InternalsVisibleTo Include="Docuconf.Tests" />
+    <InternalsVisibleTo Include="Docuconf.Tests"/>
   </ItemGroup>
 
 </Project>
