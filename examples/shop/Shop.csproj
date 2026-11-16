@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <!-- Every build re-exports contract.cue; CI builds with -p:DocuconfContractCheck=true to fail when it is stale. -->
+    <DocuconfContractPath>contract.cue</DocuconfContractPath>
+  </PropertyGroup>
+
+  <!--
+    Builds against the SDK in this repository, not a published package. The package brings the analyzer and the
+    build-time export target by itself; with project references they are added by hand. The web SDK is only for the
+    generic host in the shared framework: the app starts no server.
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Docuconf\Docuconf.csproj" />
+    <ProjectReference Include="..\..\src\Docuconf.Analyzers\Docuconf.Analyzers.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
+  <Import Project="..\..\src\Docuconf\build\Docuconf.Options.targets" />
+
+</Project>

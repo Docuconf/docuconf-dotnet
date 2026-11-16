@@ -102,12 +102,15 @@ jobs:
       # The build-time export in check mode fails the build when contract.cue is out of date.
       - name: Build examples/orders; contract.cue is up to date
         run: dotnet build examples/orders -c Release -p:DocuconfContractCheck=true
+      - name: Build examples/shop; contract.cue is up to date
+        run: dotnet build examples/shop -c Release -p:DocuconfContractCheck=true
       - name: contract.cue passes the meta-schema
         run: |
-          mkdir -p "$RUNNER_TEMP/cue/orders"
+          mkdir -p "$RUNNER_TEMP/cue/orders" "$RUNNER_TEMP/cue/shop"
           cp -r docuconf-go/spec/cue/cue.mod docuconf-go/spec/cue/contract "$RUNNER_TEMP/cue/"
           cp examples/orders/contract.cue "$RUNNER_TEMP/cue/orders/"
-          cd "$RUNNER_TEMP/cue" && "$(go env GOPATH)/bin/cue" vet -c ./orders
+          cp examples/shop/contract.cue "$RUNNER_TEMP/cue/shop/"
+          cd "$RUNNER_TEMP/cue" && "$(go env GOPATH)/bin/cue" vet -c ./orders && "$(go env GOPATH)/bin/cue" vet -c ./shop
       # CONFIG.md, CONFIG.agents.md and docs.json are generated from contract.cue by the docuconf CLI of the pinned
       # docuconf-go; they must match what it writes today. The checks read the committed contract.cue (release PRs
       # bump its generator.version), so restore it in case a build re-exported it. These are the README's commands.
@@ -121,5 +124,15 @@ jobs:
           "$(go env GOPATH)/bin/docuconf" docs contract.cue --check CONFIG.md
           "$(go env GOPATH)/bin/docuconf" docs contract.cue --format agents --check CONFIG.agents.md
           "$(go env GOPATH)/bin/docuconf" docs contract.cue --format model --check docs.json
+      - name: Generated docs are up to date (shop)
+        working-directory: examples/shop
+        run: |
+          git checkout -- contract.cue
+          "$(go env GOPATH)/bin/docuconf" docs contract.cue --check CONFIG.md
+          "$(go env GOPATH)/bin/docuconf" docs contract.cue --format agents --check CONFIG.agents.md
+          "$(go env GOPATH)/bin/docuconf" docs contract.cue --format model --check docs.json
       - name: Smoke test
         run: examples/orders/smoke.sh
+      # The shop matrix itself runs in the test job, with the solution's other tests.
+      - name: Smoke test (shop)
+        run: examples/shop/smoke.sh
