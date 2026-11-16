@@ -21,6 +21,18 @@ public sealed class ContractModel
     /// <summary>Profiles from <c>appsettings.{Environment}.json</c>, or null when there are none.</summary>
     public ProfilesSpec? Profiles { get; set; }
 
+    /// <summary>
+    /// The well-known fragments the contract includes (SPEC §4.8), such as <c>otel@1</c>. Their variables are in
+    /// <see cref="Vars"/>, inline.
+    /// </summary>
+    public List<string> Includes { get; } = [];
+
+    /// <summary>
+    /// The roles the image runs as, one per kind of process (SPEC §4.9); null when it declares none. The platform
+    /// names a workload's role in <c>DOCUCONF_ROLE</c>.
+    /// </summary>
+    public IReadOnlyList<string>? Roles { get; set; }
+
     /// <summary>Settings that could not be put in the contract, with the reason.</summary>
     public List<string> Warnings { get; } = [];
 
@@ -144,6 +156,10 @@ public sealed class VarSpec
     public int? KeyMaxLength { get; init; }
     /// <summary>Set when the variable is deprecated (SPEC §4.2).</summary>
     public DeprecationSpec? Deprecated { get; init; }
+    /// <summary>Makes the variable required only while another variable has a value (SPEC §4.2.1).</summary>
+    public RequiredIfSpec? RequiredIf { get; init; }
+    /// <summary>The roles that use the variable (SPEC §4.9); null when every role does.</summary>
+    public IReadOnlyList<string>? Roles { get; init; }
     /// <summary>A free-form group for docs, such as <c>database</c>.</summary>
     public string? Group { get; init; }
     /// <summary>Example values, for docs.</summary>
@@ -157,6 +173,14 @@ public sealed class VarSpec
 
     /// <summary>Whether the value is a list on the wire (SPEC §5): a list or a key set.</summary>
     internal bool IsListLike => Type is VarType.List or VarType.KeySet;
+
+    /// <summary>A copy that is required, or not, at this boot (SPEC §4.9).</summary>
+    internal VarSpec WithRequired(bool required)
+    {
+        var copy = (VarSpec)MemberwiseClone();
+        copy.Required = required;
+        return copy;
+    }
 }
 
 /// <summary>Contract file input types (SPEC §4.6).</summary>
@@ -188,7 +212,8 @@ public sealed class FileSpec
     /// <summary>Longer documentation in CommonMark, for generated docs only (SPEC §4.2): the XML doc <c>&lt;remarks&gt;</c>.</summary>
     public string? Details { get; init; }
     /// <summary>Whether the platform must supply it.</summary>
-    public bool Required { get; init; }
+    public bool Required { get => required; init => required = value; }
+    private bool required;
     /// <summary>Whether its content is secret.</summary>
     public bool Secret { get; init; }
     /// <summary>Where the app reads it.</summary>
@@ -223,6 +248,10 @@ public sealed class FileSpec
     public int? MaxLength { get; init; }
     /// <summary>Set when the input is deprecated (SPEC §4.2).</summary>
     public DeprecationSpec? Deprecated { get; init; }
+    /// <summary>Makes the input required only while a variable has a value (SPEC §4.2.1).</summary>
+    public RequiredIfSpec? RequiredIf { get; init; }
+    /// <summary>The roles that use the input (SPEC §4.9); null when every role does.</summary>
+    public IReadOnlyList<string>? Roles { get; init; }
     /// <summary>A free-form group for docs.</summary>
     public string? Group { get; init; }
 
@@ -230,6 +259,43 @@ public sealed class FileSpec
     /// <summary>A <see cref="ConfigFile{T}"/> property, which reloads the file; null for a property of the bound type.</summary>
     internal Type? WatchedType { get; init; }
     internal IReadOnlyList<PropertyInfo>? PasswordPath { get; init; }
+
+    /// <summary>Why the input is required at this boot, when a condition makes it so: <c>TLS_ENABLED is true</c>.</summary>
+    internal string? RequiredWhen { get; private set; }
+
+    /// <summary>A copy that is required, or not, at this boot (SPEC §4.2.1, §4.9).</summary>
+    internal FileSpec WithRequired(bool required, string? when)
+    {
+        var copy = (FileSpec)MemberwiseClone();
+        copy.required = required;
+        copy.RequiredWhen = when;
+        return copy;
+    }
+}
+
+/// <summary>
+/// A condition that makes an input required (SPEC §4.2.1): while <paramref name="Var"/> has <paramref name="Value"/>.
+/// </summary>
+/// <param name="Var">The condition variable: a string, int, bool or enum variable that is not secret.</param>
+/// <param name="Value">The value it is compared with: a <see cref="string"/>, <see cref="long"/> or <see cref="bool"/>.</param>
+public sealed record RequiredIfSpec(string Var, object Value)
+{
+    /// <summary>Whether a variable's loaded value is the condition's value.</summary>
+    public bool HoldsFor(object? value) => (Value, value) switch
+    {
+        (bool a, bool b) => a == b,
+        (long a, long b) => a == b,
+        (string a, string b) => string.Equals(a, b, StringComparison.Ordinal),
+        _ => false,
+    };
+
+    /// <summary>The condition as messages write it, the value as JSON: <c>LOG_FORMAT is "json"</c>.</summary>
+    public override string ToString() => $"{Var} is {Value switch
+    {
+        bool b => b ? "true" : "false",
+        long l => l.ToString(System.Globalization.CultureInfo.InvariantCulture),
+        _ => System.Text.Json.JsonSerializer.Serialize((string)Value),
+    }}";
 }
 
 /// <summary>Values from <c>appsettings.{Environment}.json</c> files (SPEC §4.4).</summary>

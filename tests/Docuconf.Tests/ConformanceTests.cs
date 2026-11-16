@@ -18,7 +18,7 @@ public sealed class ConformanceTests
     /// skipped. <c>json-schema</c> is checked with JsonSchema.Net.
     /// </summary>
     private static readonly HashSet<string> Supported =
-        ["int64", "json-schema", "key-set", "deprecated", "strict-parsing", "files", "profiles", "overlays"];
+        ["int64", "json-schema", "key-set", "deprecated", "strict-parsing", "files", "profiles", "overlays", "required-if", "roles"];
 
     [Fact]
     public void Passes_the_conformance_suite()
@@ -31,6 +31,27 @@ public sealed class ConformanceTests
             Assert.Skip(message);
         }
 
+        RunSuite(path, skipsFail: true);
+    }
+
+    /// <summary>
+    /// Runs <c>cases.pending.json</c>, next to <c>cases.json</c>: the cases of features not every SDK supports yet. A
+    /// case this runner supports must pass; one with a tag it does not know is skipped without failing.
+    /// </summary>
+    [Fact]
+    public void Passes_the_pending_conformance_cases()
+    {
+        var path = Path.Join(Path.GetDirectoryName(Locate()), "cases.pending.json");
+        if (!File.Exists(path))
+        {
+            Assert.Skip($"Pending conformance cases not found at {path}.");
+        }
+
+        RunSuite(path, skipsFail: false);
+    }
+
+    private static void RunSuite(string path, bool skipsFail)
+    {
         var suite = JsonNode.Parse(File.ReadAllText(path))!;
         Assert.Equal(1, suite["version"]!.GetValue<int>());
 
@@ -81,8 +102,8 @@ public sealed class ConformanceTests
         }
 
         Assert.True(failures.Count == 0, summary + Environment.NewLine + string.Join(Environment.NewLine, failures));
-        // Every capability tag is supported: a skip means a new tag this runner does not know yet.
-        Assert.True(skipped.Count == 0, summary + Environment.NewLine + string.Join(Environment.NewLine, skipped));
+        // Every capability tag of cases.json is supported: a skip there means a new tag this runner does not know yet.
+        Assert.True(!skipsFail || skipped.Count == 0, summary + Environment.NewLine + string.Join(Environment.NewLine, skipped));
     }
 
     private static string Locate()

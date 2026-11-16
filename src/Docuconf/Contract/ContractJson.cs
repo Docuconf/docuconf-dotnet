@@ -131,6 +131,11 @@ internal static partial class ContractJson
             ReadProfiles(profiles, model, errors);
         }
 
+        ReadIncludes(doc["includes"], model, errors);
+        model.Roles = ReadRoles(doc["roles"], m => errors.Add($"roles: {m}"));
+        CheckRoles(model, errors);
+        CheckConditions(model, errors);
+
         if (errors.Count > 0)
         {
             throw new ContractException(errors);
@@ -265,6 +270,11 @@ internal static partial class ContractJson
             Error("a required variable cannot be deprecated: the platform could not stop setting it.");
         }
 
+        if (deprecated is not null && v["requiredIf"] is not null)
+        {
+            Error("a conditionally required variable cannot be deprecated: the platform could not stop setting it.");
+        }
+
         string? separator = v["separator"]?.GetValue<string>();
         if (separator is { Length: 0 })
         {
@@ -318,6 +328,8 @@ internal static partial class ContractJson
             KeyMinLength = keyMinLength,
             KeyMaxLength = keyMaxLength,
             Deprecated = deprecated,
+            RequiredIf = ReadRequiredIf(v["requiredIf"], Error),
+            Roles = ReadRoles(v["roles"], Error),
             Group = v["group"]?.GetValue<string>(),
             Examples = v["examples"] is JsonArray exampleList ? exampleList.Select(x => x!.GetValue<string>()).ToList() : null,
         };
@@ -347,6 +359,187 @@ internal static partial class ContractJson
         }
 
         return spec;
+    }
+
+    [GeneratedRegex("^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?\\z")]
+    private static partial Regex RoleSyntax();
+
+    [GeneratedRegex("^[a-z][a-z0-9-]*@[1-9][0-9]*\\z")]
+    private static partial Regex FragmentSyntax();
+
+    /// <summary>The well-known fragments a contract includes (SPEC §4.8): their variables are inline in vars.</summary>
+    private static void ReadIncludes(JsonNode? node, ContractModel model, List<string> errors)
+    {
+        if (node is null)
+        {
+            return;
+        }
+
+        if (node is not JsonArray list || list.Any(x => x?.GetValueKind() != JsonValueKind.String))
+        {
+            errors.Add("includes must be a list of fragment names, such as otel@1.");
+            return;
+        }
+
+        foreach (var name in list.Select(x => x!.GetValue<string>()))
+        {
+            if (!FragmentSyntax().IsMatch(name))
+            {
+                errors.Add($"includes: '{name}' is not a fragment name, name@major.");
+            }
+            else if (model.Includes.Contains(name))
+            {
+                errors.Add($"includes: {name} is listed twice.");
+            }
+            else
+            {
+                model.Includes.Add(name);
+            }
+        }
+    }
+
+    /// <summary>A list of roles (SPEC §4.9): DNS labels, at least one, none twice.</summary>
+    private static List<string>? ReadRoles(JsonNode? node, Action<string> error)
+    {
+        if (node is null)
+        {
+            return null;
+        }
+
+        if (node is not JsonArray list || list.Count == 0 || list.Any(x => x?.GetValueKind() != JsonValueKind.String))
+        {
+            error("roles must be a list of at least one role name.");
+            return null;
+        }
+
+        var roles = list.Select(x => x!.GetValue<string>()).ToList();
+        for (int i = 0; i < roles.Count; i++)
+        {
+            if (!RoleSyntax().IsMatch(roles[i]))
+            {
+                error($"role '{roles[i]}' must be a DNS label.");
+            }
+            else if (roles.IndexOf(roles[i]) < i)
+            {
+                error($"role {roles[i]} is listed twice.");
+            }
+        }
+
+        return roles;
+    }
+
+    /// <summary>
+    /// The inputs' roles against the contract's (SPEC §4.9), and DOCUCONF_ROLE: a required enum of exactly the roles.
+    /// </summary>
+    private static void CheckRoles(ContractModel model, List<string> errors)
+    {
+        var inputs = model.Vars.Values.Select(v => (What: $"vars.{v.Name}", v.Roles))
+            .Concat(model.Files.Values.Select(f => (What: $"files.{f.Name}", f.Roles)));
+        foreach (var (what, used) in inputs)
+        {
+            foreach (var r in used ?? [])
+            {
+                if (model.Roles is null)
+                {
+                    errors.Add($"{what}: has roles, but the contract declares none.");
+                    break;
+                }
+
+                if (!model.Roles.Contains(r))
+                {
+                    errors.Add($"{what}: role {r} is not one of the contract's roles, {string.Join(", ", model.Roles)}.");
+                }
+            }
+        }
+
+        if (model.Roles is null)
+        {
+            return;
+        }
+
+        if (!model.Vars.TryGetValue(DocuconfContract.RoleVar, out var role)
+            || role is not { Type: VarType.Enum, Required: true, Roles: null }
+            || !role.Values!.SequenceEqual(model.Roles))
+        {
+            errors.Add($"vars.{DocuconfContract.RoleVar}: a contract with roles declares it as a required enum whose values are the roles, {string.Join(", ", model.Roles)}, used by every role.");
+        }
+    }
+
+    /// <summary>
+    /// Each input's requiredIf against the variables (SPEC §4.2.1): the condition names another variable, a plain
+    /// string, int, bool or enum one, with a value it can hold; the input is optional, with no default.
+    /// </summary>
+    private static void CheckConditions(ContractModel model, List<string> errors)
+    {
+        var inputs = model.Vars.Values.Select(v => (What: $"vars.{v.Name}", Name: v.Name, v.RequiredIf, v.Required, HasDefault: v.Default is not null))
+            .Concat(model.Files.Values.Select(f => (What: $"files.{f.Name}", Name: f.Name, f.RequiredIf, f.Required, HasDefault: false)));
+        foreach (var (what, name, condition, required, hasDefault) in inputs)
+        {
+            if (condition is null)
+            {
+                continue;
+            }
+
+            if (required || hasDefault)
+            {
+                errors.Add($"{what}: an input with requiredIf is neither required nor has a default.");
+            }
+
+            if (condition.Var == name || !model.Vars.TryGetValue(condition.Var, out var on))
+            {
+                errors.Add($"{what}: requiredIf must name another declared variable, not '{condition.Var}'.");
+                continue;
+            }
+
+            if (on.Secret || on.Type is not (VarType.String or VarType.Int or VarType.Bool or VarType.Enum))
+            {
+                errors.Add($"{what}: requiredIf names {on.Name}, which is not a plain string, int, bool or enum variable.");
+                continue;
+            }
+
+            bool sameType = on.Type switch
+            {
+                VarType.Int => condition.Value is long,
+                VarType.Bool => condition.Value is bool,
+                _ => condition.Value is string,
+            };
+            var problem = sameType ? Constraints.Check(on, condition.Value) : null;
+            if (!sameType || problem is not null)
+            {
+                errors.Add($"{what}: requiredIf: {condition} is not a value {on.Name} can have{(problem is null ? "" : ": " + problem.Message)}.");
+            }
+        }
+    }
+
+    /// <summary><c>requiredIf: {VAR: value}</c> (SPEC §4.2.1): one variable and a string, integer or boolean.</summary>
+    private static RequiredIfSpec? ReadRequiredIf(JsonNode? node, Action<string> error)
+    {
+        if (node is null)
+        {
+            return null;
+        }
+
+        if (node is not JsonObject o || o.Count != 1)
+        {
+            error("requiredIf must name one variable and its value: {VAR: value}.");
+            return null;
+        }
+
+        var (name, value) = o.First();
+        object? typed = value?.GetValueKind() switch
+        {
+            JsonValueKind.True or JsonValueKind.False => value.GetValue<bool>(),
+            JsonValueKind.String => value.GetValue<string>(),
+            JsonValueKind.Number when long.TryParse(value.ToJsonString(), System.Globalization.NumberStyles.AllowLeadingSign, System.Globalization.CultureInfo.InvariantCulture, out var l) => l,
+            _ => null,
+        };
+        if (!EnvNameSyntax().IsMatch(name) || typed is null)
+        {
+            error("requiredIf must name one variable and a string, integer or boolean value.");
+            return null;
+        }
+
+        return new RequiredIfSpec(name, typed);
     }
 
     /// <summary><c>deprecated: {message, replacedBy?}</c> (SPEC §4.2).</summary>
@@ -459,6 +652,11 @@ internal static partial class ContractJson
             Error("a required input cannot be deprecated: the platform could not stop setting it.");
         }
 
+        if (deprecated is not null && f["requiredIf"] is not null)
+        {
+            Error("a conditionally required input cannot be deprecated: the platform could not stop setting it.");
+        }
+
         if (errors.Count > before)
         {
             return null;
@@ -488,6 +686,8 @@ internal static partial class ContractJson
             MinLength = f["minLength"]?.GetValue<int>(),
             MaxLength = f["maxLength"]?.GetValue<int>(),
             Deprecated = deprecated,
+            RequiredIf = ReadRequiredIf(f["requiredIf"], Error),
+            Roles = ReadRoles(f["roles"], Error),
             Group = f["group"]?.GetValue<string>(),
         };
     }

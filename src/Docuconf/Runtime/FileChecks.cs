@@ -60,12 +60,14 @@ internal static class FileChecks
     /// (<see cref="JsonNode"/>, or a <see cref="ConfigFile{T}"/> of it that reloads the file when it is declared
     /// <c>reload: watch</c>), a <c>text</c> file as its text, and the others as <see cref="TlsKeyPair"/>,
     /// <see cref="CaBundle"/>, <see cref="Keystore"/> or <see cref="BinaryFile"/>. An absent optional input is null.
+    /// <paramref name="forBoot"/> is each input as this boot requires it: its roles and its condition (SPEC §4.2.1,
+    /// §4.9).
     /// </summary>
     public static Dictionary<string, object?> LoadContract(
-        ContractModel model, Func<string, string?> lookup, string root, Func<DateTimeOffset> clock, TextWriter log, Func<string, string?> password, List<Violation> violations)
+        ContractModel model, Func<FileSpec, FileSpec> forBoot, Func<string, string?> lookup, string root, Func<DateTimeOffset> clock, TextWriter log, Func<string, string?> password, List<Violation> violations)
     {
         var values = new Dictionary<string, object?>(StringComparer.Ordinal);
-        foreach (var spec in model.Files.Values)
+        foreach (var spec in model.Files.Values.Select(forBoot))
         {
             var path = Locate(spec, lookup, root);
             var bootPassword = spec.PasswordVar is { } v ? password(v) : null;
@@ -198,9 +200,9 @@ internal static class FileChecks
             {
                 if (required)
                 {
-                    Fail(Codes.FileMissing, spec.PathEnv is { } pathEnv
+                    Fail(Codes.FileMissing, (spec.PathEnv is { } pathEnv
                         ? $"{path} does not exist (mount it there, or set {pathEnv})"
-                        : $"{path} does not exist");
+                        : $"{path} does not exist") + (spec.RequiredWhen is { } when ? $", and is required when {when}" : ""));
                 }
 
                 return null;
