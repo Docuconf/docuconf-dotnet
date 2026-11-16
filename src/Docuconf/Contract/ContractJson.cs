@@ -181,7 +181,7 @@ internal static partial class ContractJson
         model.Profiles = profiles;
     }
 
-    private static VarSpec? ReadVar(string name, JsonObject v, List<string> errors)
+    internal static VarSpec? ReadVar(string name, JsonObject v, List<string> errors)
     {
         int before = errors.Count;
         void Error(string message) => errors.Add($"vars.{name}: {message}");
@@ -399,7 +399,7 @@ internal static partial class ContractJson
     }
 
     /// <summary>A list of roles (SPEC §4.9): DNS labels, at least one, none twice.</summary>
-    private static List<string>? ReadRoles(JsonNode? node, Action<string> error)
+    internal static List<string>? ReadRoles(JsonNode? node, Action<string> error)
     {
         if (node is null)
         {
@@ -431,7 +431,7 @@ internal static partial class ContractJson
     /// <summary>
     /// The inputs' roles against the contract's (SPEC §4.9), and DOCUCONF_ROLE: a required enum of exactly the roles.
     /// </summary>
-    private static void CheckRoles(ContractModel model, List<string> errors)
+    internal static void CheckRoles(ContractModel model, List<string> errors)
     {
         var inputs = model.Vars.Values.Select(v => (What: $"vars.{v.Name}", v.Roles))
             .Concat(model.Files.Values.Select(f => (What: $"files.{f.Name}", f.Roles)));
@@ -469,7 +469,7 @@ internal static partial class ContractJson
     /// Each input's requiredIf against the variables (SPEC §4.2.1): the condition names another variable, a plain
     /// string, int, bool or enum one, with a value it can hold; the input is optional, with no default.
     /// </summary>
-    private static void CheckConditions(ContractModel model, List<string> errors)
+    internal static void CheckConditions(ContractModel model, List<string> errors)
     {
         var inputs = model.Vars.Values.Select(v => (What: $"vars.{v.Name}", Name: v.Name, v.RequiredIf, v.Required, HasDefault: v.Default is not null))
             .Concat(model.Files.Values.Select(f => (What: $"files.{f.Name}", Name: f.Name, f.RequiredIf, f.Required, HasDefault: false)));

@@ -28,11 +28,14 @@ internal static class FileChecks
         return root.Length == 0 ? path : Path.Join(root, path);
     }
 
-    /// <summary>Loads every file input of a declared options class into <paramref name="target"/>.</summary>
-    public static void LoadAll(object target, ContractModel model, DocuconfSettings settings, List<Violation> violations, Microsoft.Extensions.Configuration.IConfiguration? configuration = null)
+    /// <summary>
+    /// Loads every file input of a declared options class into <paramref name="target"/>, each as
+    /// <paramref name="forBoot"/> requires it at this boot.
+    /// </summary>
+    public static void LoadAll(object target, ContractModel model, Func<FileSpec, FileSpec> forBoot, DocuconfSettings settings, List<Violation> violations, Microsoft.Extensions.Configuration.IConfiguration? configuration = null)
     {
         var root = DocuconfBinder.Root(settings, configuration);
-        foreach (var spec in model.Files.Values)
+        foreach (var spec in model.Files.Values.Select(forBoot))
         {
             var path = Locate(spec, Lookup(configuration), root);
             // Read once: a reload reuses the password read at startup, since the environment does not change.

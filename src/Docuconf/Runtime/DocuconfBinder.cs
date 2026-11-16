@@ -104,7 +104,11 @@ internal static class DocuconfBinder
             }
         }
 
-        FileChecks.LoadAll(target, model, settings, violations, configuration);
+        // The variables no property binds (fragments, DOCUCONF_ROLE), then the file inputs as this boot requires them:
+        // its role, and the conditions on the bound values (SPEC §4.2.1, §4.9).
+        var unbound = BootRules.LoadUnbound(model, configuration, violations);
+        var rules = new BootRules(model, unbound, target, violations.Select(v => v.Input).ToHashSet(StringComparer.Ordinal));
+        FileChecks.LoadAll(target, model, rules.ForBoot, settings, violations, configuration);
         return violations;
     }
 

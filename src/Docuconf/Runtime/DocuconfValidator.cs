@@ -35,6 +35,8 @@ internal sealed class DocuconfValidateOptions<T>(IConfiguration configuration) :
         var model = ContractCache.For(typeof(T));
         var violations = new List<Violation>(BindState.Get(options));
         var alreadyInvalid = violations.Select(v => v.Input).ToHashSet(StringComparer.Ordinal);
+        // The variables no property binds were reported while binding; here they only feed the role and conditions.
+        var rules = new BootRules(model, BootRules.LoadUnbound(model, configuration, []), options, alreadyInvalid);
 
         foreach (var spec in model.Vars.Values)
         {
@@ -45,9 +47,11 @@ internal sealed class DocuconfValidateOptions<T>(IConfiguration configuration) :
 
             var section = DocuconfBinder.SectionOf(configuration, spec);
             bool present = DocuconfBinder.IsSet(section, spec);
-            if (spec.Required && !present)
+            var (required, when) = rules.Requirement(spec);
+            if (required && !present)
             {
-                violations.Add(new Violation(Codes.MissingRequired, spec.Name, $"is required ({spec.ConfigKey})"));
+                violations.Add(new Violation(Codes.MissingRequired, spec.Name,
+                    when is null ? $"is required ({spec.ConfigKey})" : $"is required when {when} ({spec.ConfigKey})"));
                 continue;
             }
 

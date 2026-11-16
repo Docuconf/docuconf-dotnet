@@ -12,6 +12,7 @@ import (
 	"path"
 	"regexp"
 	"strings"
+	"struct"
 	"time"
 )
 
@@ -25,11 +26,21 @@ import (
 		// Application version the contract was exported from, e.g. a git SHA or semver.
 		appVersion?: string
 		generator: {
-			language: "go" | "typescript" | "ruby" | "dotnet" | "python" | "java" | "kotlin" | "rust" | "swift" | "elixir" | "gleam" | "cpp" | "php" | "cobol"
+			// "manual": written by hand, for an image no SDK built, such as a
+			// third-party image in a catalog (SPEC §8.1).
+			language: "go" | "typescript" | "ruby" | "dotnet" | "python" | "java" | "kotlin" | "rust" | "swift" | "elixir" | "gleam" | "cpp" | "php" | "cobol" | "manual"
 			sdk:      string
 			version:  string
 		}
 	}
+	// Well-known fragments the app includes (fragments.cue, SPEC §4.8).
+	// Their variables are in vars, inline: the app's own declaration of
+	// one replaces the fragment's.
+	includes?: [...#FragmentRef] & list.UniqueItems()
+	// The roles the image runs as, one per kind of process: web, worker,
+	// migrate (SPEC §4.9). An input with roles is used only in those; one
+	// without, in every role. DOCUCONF_ROLE names the role at runtime.
+	roles?: [#RoleName, ...#RoleName] & list.UniqueItems()
 	vars: [N=#EnvName]: #Var & {name: N}
 	files?: [N=#InputName]: #File & {name: N}
 	// Config files the platform may mount over the app's own (overlays.cue).
@@ -66,6 +77,44 @@ import (
 		}
 	}
 
+	// A requiredIf condition names another declared variable that has a
+	// plain value to compare, and the value it names is one that variable
+	// accepts.
+	_requiredIf: {
+		for n, v in vars if v.requiredIf != _|_ {
+			(n): #RequiredIfCondition & {input: n, condition: v.requiredIf, "vars": vars}
+		}
+		if files != _|_ {
+			for n, f in files if f.requiredIf != _|_ {
+				(n): #RequiredIfCondition & {input: n, condition: f.requiredIf, "vars": vars}
+			}
+		}
+	}
+
+	if roles != _|_ {
+		// The platform sets the workload's role, which the SDK reads at boot.
+		_roleVariable: true & vars.DOCUCONF_ROLE != _|_
+		if vars.DOCUCONF_ROLE != _|_ {
+			_roleVariableNamesTheRoles: true & vars.DOCUCONF_ROLE.type == "enum" && vars.DOCUCONF_ROLE.required && vars.DOCUCONF_ROLE.values == roles && vars.DOCUCONF_ROLE.roles == _|_
+		}
+	}
+	_inputRoles: {
+		for n, v in vars if v.roles != _|_ for r in v.roles {
+			"\(n)/\(r)": true & roles != _|_ && list.Contains([if roles != _|_ for x in roles {x}], r)
+		}
+		if files != _|_ {
+			for n, f in files if f.roles != _|_ for r in f.roles {
+				"\(n)/\(r)": true & roles != _|_ && list.Contains([if roles != _|_ for x in roles {x}], r)
+			}
+		}
+	}
+
+	if includes != _|_ {
+		for r in includes for n, _ in #Fragments[r].vars {
+			_fragmentVarDeclared: "\(r)/\(n)": true & vars[n] != _|_
+		}
+	}
+
 	if overlays != _|_ {
 		for n, o in overlays {
 			let dir = path.Dir(o.path, path.Unix)
@@ -93,6 +142,34 @@ import (
 }
 
 #EnvName: =~"^[A-Z][A-Z0-9_]*$"
+
+// #RoleName names a role an image runs as (SPEC §4.9), as a DNS label.
+#RoleName: =~"^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$"
+
+// #RequiredIf makes an input required only while one variable has one
+// value (SPEC §4.2), e.g. {TLS_ENABLED: true}. It is one variable,
+// compared for equality: richer logic belongs in the app.
+#RequiredIf: struct.MinFields(1) & struct.MaxFields(1) & {[#EnvName]: bool | int | string}
+
+// #RequiredIfCondition checks one input's requiredIf against the
+// contract's variables.
+#RequiredIfCondition: {
+	input:     string
+	condition: #RequiredIf
+	vars: {...}
+	for c, x in condition {
+		conditionIsDeclared:        true & vars[c] != _|_
+		conditionIsAnotherVariable: true & c != input
+		if vars[c] != _|_ {
+			// A secret's value is a reference, never known before deploy, and
+			// only these types compare as written.
+			conditionIsPlain: true & !vars[c].secret && list.Contains(["string", "int", "bool", "enum"], vars[c].type)
+			if !vars[c].secret {
+				conditionValue: #Check & {var: vars[c], value: x}
+			}
+		}
+	}
+}
 
 // #Details is the optional long-form documentation of an input, in
 // CommonMark: not blank, and at most 4000 characters (Unicode code points).
@@ -126,10 +203,21 @@ import (
 		default?: _|_
 	}
 
+	// The roles that use it (SPEC §4.9); every role when absent.
+	roles?: [#RoleName, ...#RoleName] & list.UniqueItems()
+	// Required only while another variable has a value (SPEC §4.2). Like
+	// a required variable, it has no default.
+	requiredIf?: #RequiredIf
+	if requiredIf != _|_ {
+		_requiredIfOnAnOptionalInput: true & !required
+		default?:                     _|_
+	}
+
 	// Deprecating an input asks the platform to stop setting it, which a
 	// required one cannot do.
 	if deprecated != _|_ {
-		_aRequiredInputCannotBeDeprecated: true & !required
+		_aRequiredInputCannotBeDeprecated:              true & !required
+		_aConditionallyRequiredInputCannotBeDeprecated: true & requiredIf == _|_
 	}
 
 	// Secrets never carry defaults or examples in the contract.
@@ -231,6 +319,7 @@ import (
 	if itemMin != _|_ || itemMax != _|_ {
 		_itemBoundsOnIntItems: true & items == "int"
 	}
+
 	// Bounds on the length of each item of a string list, in characters
 	// (Unicode code points), as minLength and maxLength for a string.
 	itemMinLength?: int & >=0
@@ -255,6 +344,7 @@ import (
 	if encoding == "csv" {
 		separator: *"," | string
 	}
+
 	// How many keys may be set at once: one normally, two during a rotation.
 	minKeys:                *1 | int
 	maxKeys:                *2 | int
@@ -443,6 +533,7 @@ import (
 	contract: #Contract
 	values: close({
 		for n, _ in contract.vars {(n)?: _}
+
 		// Pod metadata shared by every injector (SPEC §4.5.2). Variable
 		// names are upper case, so these never collide with one.
 		podAnnotations?: #PodAnnotations
@@ -480,6 +571,7 @@ import (
 				if v.configKey != _|_ {
 					withinKeyDepth: true & len(strings.Split(v.configKey, contract.overlays[o].keySeparator)) <= #MaxKeyDepth
 				}
+
 				// The profile selector picks which files load, so it cannot come from one.
 				if contract.profiles != _|_ {
 					notProfileSelector: true & contract.profiles.selector != n
@@ -546,15 +638,42 @@ import (
 		if v.required && values[n] == _|_ && _fromProfile[n] == _|_ && _inOverlay[n] == _|_ {
 			(n): "required, and not set by the platform or the selected profile"
 		}
+		for n, v in contract.vars
+		if v.requiredIf != _|_ && values[n] == _|_ && _fromProfile[n] == _|_ && _inOverlay[n] == _|_
+		for c, x in v.requiredIf if _conditionValue[c] != _|_ if _conditionValue[c] == x {
+			(n): "required when \(c) is \(json.Marshal(x)), and not set by the platform or the selected profile"
+		}
 		if contract.files != _|_ {
 			for n, f in contract.files if f.required && files[n] == _|_ {
 				(n): "required file input, and no source given"
+			}
+			for n, f in contract.files if f.requiredIf != _|_ && files[n] == _|_
+			for c, x in f.requiredIf if _conditionValue[c] != _|_ if _conditionValue[c] == x {
+				(n): "required file input when \(c) is \(json.Marshal(x)), and no source given"
 			}
 		}
 	})
 	missingRequired: close({})
 
 	_inOverlay: {for o, m in overlays for n, _ in m {(n): true}}
+
+	// The value a requiredIf condition compares (SPEC §4.2): what the
+	// platform sets, else an overlay, else the selected profile, else the
+	// variable's default. A reference has no value before deploy, so a
+	// condition on one is left to the SDK at boot.
+	_conditionValue: {
+		for n, v in contract.vars {
+			let e = [
+				if values[n] != _|_ {values[n]},
+				for o, m in overlays if m[n] != _|_ {m[n]},
+				if _fromProfile[n] != _|_ {_fromProfile[n]},
+				if v.default != _|_ {v.default},
+			]
+			if len(e) > 0 if (e[0] & (bool | int | string)) != _|_ {
+				(n): e[0]
+			}
+		}
+	}
 
 	// A required variable is satisfied by the selected profile's file.
 	_fromProfile: {...}

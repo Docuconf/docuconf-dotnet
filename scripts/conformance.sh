@@ -3,7 +3,8 @@
 # the shared conformance suite (ConformanceTests), the shared export check
 # (ConformanceExportTests, which runs `docuconf conformance export`), and the
 # tests that `cue vet` exported contracts against its meta-schema
-# (ExportTests, JsonVarTests, ItemBoundsTests). Not the full suite.
+# (ExportTests, JsonVarTests, ItemBoundsTests, DeclaredConditionTests, which
+# also checks the embedded fragments.json). Not the full suite.
 #
 #   DOCUCONF_GO_DIR=/path/to/docuconf-go scripts/conformance.sh
 #
@@ -38,6 +39,7 @@ dotnet test --project tests/Docuconf.Tests -c Release \
   --filter-class Docuconf.Tests.ConformanceExportTests \
   --filter-class Docuconf.Tests.ExportTests \
   --filter-class Docuconf.Tests.JsonVarTests \
-  --filter-class Docuconf.Tests.ItemBoundsTests
+  --filter-class Docuconf.Tests.ItemBoundsTests \
+  --filter-class Docuconf.Tests.DeclaredConditionTests
 # One line per target framework: "conformance: N passed, 0 skipped, 0 failed".
 cat "$DOCUCONF_CONFORMANCE_SUMMARY"

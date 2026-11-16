@@ -165,3 +165,49 @@ public class PartnerOptionsTests
         Assert.Equal(("missing_required", "PARTNER__KEYSTOREPASSWORD"), (problem.Code, problem.Input));
     }
 }
+
+[ConfigContract("relay", Section = "Relay"), Includes("dotnet-runtime@1", "otel@1")]
+public sealed class RelayOptions
+{
+    [EnvName("TLS_ENABLED"), Description("Serve HTTPS instead of HTTP")]
+    public bool TlsEnabled { get; set; }
+
+    [EnvName("CA_SUBJECT"), RequiredIf("TLS_ENABLED", true), Description("Subject of the CA that signs client certificates")]
+    public string? ClientCaSubject { get; set; }
+
+    [TextFile("/etc/relay/allow.txt"), RequiredIf("TLS_ENABLED", true), Description("Client names allowed over TLS")]
+    public string? Allowlist { get; set; }
+}
+
+[ConfigContract("shop", Section = "Shop"), Roles("web", "worker")]
+public sealed class ShopOptions
+{
+    [Required, Roles("web"), Description("Origins the web server accepts")]
+    public string[]? AllowedOrigins { get; set; }
+
+    [Required, Roles("worker"), Description("Queues the worker takes jobs from")]
+    public string[]? Queues { get; set; }
+}
+
+public class ConditionalSnippetTests
+{
+    [Fact]
+    public void A_condition_requires_its_inputs()
+    {
+        Assert.Empty(DocuconfTesting.Validate<RelayOptions>(new Dictionary<string, string>()));
+        var problems = DocuconfTesting.Validate<RelayOptions>(new Dictionary<string, string> { ["TLS_ENABLED"] = "true", ["OTEL_SDK_DISABLED"] = "maybe" })
+            .Select(p => p.ToString()).ToList();
+        Assert.Contains("[missing_required] CA_SUBJECT: is required when TLS_ENABLED is true (Relay:ClientCaSubject)", problems);
+        Assert.Contains(problems, p => p.StartsWith("[file_missing] allowlist:", StringComparison.Ordinal));
+        Assert.Contains(problems, p => p.StartsWith("[invalid_type] OTEL_SDK_DISABLED:", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void A_role_requires_its_own_inputs()
+    {
+        Assert.Empty(DocuconfTesting.Validate<ShopOptions>(new Dictionary<string, string> { ["DOCUCONF_ROLE"] = "worker", ["SHOP__QUEUES__0"] = "mail" }));
+        Assert.Equal(
+            "[missing_required] SHOP__ALLOWEDORIGINS: is required (Shop:AllowedOrigins)",
+            Assert.Single(DocuconfTesting.Validate<ShopOptions>(new Dictionary<string, string> { ["DOCUCONF_ROLE"] = "web" })).ToString());
+    }
+}

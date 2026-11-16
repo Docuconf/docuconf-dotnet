@@ -71,6 +71,11 @@
     <PackageReference Include="Tomlyn" Version="0.19.0"/>
   </ItemGroup>
 
+  <!-- docuconf-go's spec/fragments.json: the well-known fragments (SPEC §4.8). FragmentTests keeps it in sync. -->
+  <ItemGroup>
+    <EmbeddedResource Include="Contract\fragments.json" LogicalName="Docuconf.fragments.json"/>
+  </ItemGroup>
+
   <ItemGroup>
     <InternalsVisibleTo Include="Docuconf.Tests"/>
   </ItemGroup>

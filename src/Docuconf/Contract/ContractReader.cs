@@ -128,6 +128,10 @@ public static partial class ContractReader
         }
 
         ResolveKeystorePasswords(model, pending, errors);
+        ReadRoles(types, model, errors);
+        ReadIncludes(types, model, errors);
+        ContractJson.CheckRoles(model, errors);
+        ContractJson.CheckConditions(model, errors);
         ReadOverlays(types, model, errors);
         CheckReplacements(model, errors);
 
@@ -433,6 +437,8 @@ public static partial class ContractReader
         }
 
         var deprecated = Deprecation(prop, key, required, errors);
+        var condition = Condition(prop, key, required, deprecated, errors);
+        var roles = InputRoles(prop, key, errors);
         var examples = prop.GetCustomAttribute<ExamplesAttribute>()?.Values;
         if (examples is not null && secret)
         {
@@ -477,6 +483,8 @@ public static partial class ContractReader
             KeyMinLength = keyMinLength,
             KeyMaxLength = keyMaxLength,
             Deprecated = deprecated,
+            RequiredIf = condition,
+            Roles = roles,
             Group = GroupOf(prop),
             Examples = examples,
             PropertyPath = path,
@@ -508,6 +516,12 @@ public static partial class ContractReader
         else if (secret && spec.Default is not null)
         {
             errors.Add($"{key}: a [Secret] value cannot have a default. Remove the initializer.");
+            spec.Default = null;
+        }
+
+        if (condition is not null && spec.Default is not null)
+        {
+            errors.Add($"{key}: a [RequiredIf] input has no default, since it is optional while its condition does not hold. Remove the initializer{(clr.IsValueType && Nullable.GetUnderlyingType(prop.PropertyType) is null ? $", and make it {clr.Name}?" : "")}.");
             spec.Default = null;
         }
 
@@ -632,6 +646,8 @@ public static partial class ContractReader
         bool secret = prop.GetCustomAttribute<SecretAttribute>() is not null;
         long? maxSize = attr.MaxSize > 0 ? attr.MaxSize : null;
         var deprecated = Deprecation(prop, key, required, errors);
+        var condition = Condition(prop, key, required, deprecated, errors);
+        var roles = InputRoles(prop, key, errors);
         var group = GroupOf(prop);
 
         void Expect(Type expected)
@@ -663,7 +679,7 @@ public static partial class ContractReader
                     Name = name, Type = FileType.Config, Format = format, Description = description, Details = details, Required = required, Secret = secret,
                     Path = attr.Path, PathEnv = attr.PathEnv, Reload = attr.Reload, MaxSize = maxSize,
                     Schema = SchemaGenerator.For(bound), PropertyPath = path, WatchedType = watched,
-                    Deprecated = deprecated, Group = group,
+                    Deprecated = deprecated, Group = group, RequiredIf = condition, Roles = roles,
                 };
                 break;
 
@@ -683,7 +699,7 @@ public static partial class ContractReader
                         ? null
                         : Enum.GetValues<KeyAlgorithms>().Where(a => a != KeyAlgorithms.Any && tls.KeyAlgorithms.HasFlag(a)).Select(a => a.ToString()).ToList(),
                     MinRemaining = tls.MinRemaining, RequireCA = tls.RequireCA, PropertyPath = path,
-                    Deprecated = deprecated, Group = group,
+                    Deprecated = deprecated, Group = group, RequiredIf = condition, Roles = roles,
                 };
                 break;
 
@@ -694,7 +710,7 @@ public static partial class ContractReader
                     Name = name, Type = FileType.CaBundle, Description = description, Details = details, Required = required, Secret = secret,
                     Path = attr.Path, PathEnv = attr.PathEnv, Reload = attr.Reload, MaxSize = maxSize,
                     MinCertificates = ca.MinCertificates == 1 ? null : ca.MinCertificates, PropertyPath = path,
-                    Deprecated = deprecated, Group = group,
+                    Deprecated = deprecated, Group = group, RequiredIf = condition, Roles = roles,
                 };
                 break;
 
@@ -704,7 +720,7 @@ public static partial class ContractReader
                 {
                     Name = name, Type = FileType.Keystore, Format = "pkcs12", Description = description, Details = details, Required = required, Secret = true,
                     Path = attr.Path, PathEnv = attr.PathEnv, Reload = attr.Reload, MaxSize = maxSize, PropertyPath = path,
-                    Deprecated = deprecated, Group = group,
+                    Deprecated = deprecated, Group = group, RequiredIf = condition, Roles = roles,
                 };
                 if (ks.PasswordProperty is not null)
                 {
@@ -732,7 +748,7 @@ public static partial class ContractReader
                     Path = attr.Path, PathEnv = attr.PathEnv, Reload = attr.Reload, MaxSize = maxSize,
                     Pattern = text.Pattern, MinLength = text.MinLength > 0 ? text.MinLength : null,
                     MaxLength = text.MaxLength > 0 ? text.MaxLength : null, PropertyPath = path,
-                    Deprecated = deprecated, Group = group,
+                    Deprecated = deprecated, Group = group, RequiredIf = condition, Roles = roles,
                 };
                 break;
 
@@ -742,7 +758,7 @@ public static partial class ContractReader
                 {
                     Name = name, Type = FileType.Binary, Description = description, Details = details, Required = required, Secret = secret,
                     Path = attr.Path, PathEnv = attr.PathEnv, Reload = attr.Reload, MaxSize = maxSize, PropertyPath = path,
-                    Deprecated = deprecated, Group = group,
+                    Deprecated = deprecated, Group = group, RequiredIf = condition, Roles = roles,
                 };
                 break;
 
@@ -781,7 +797,7 @@ public static partial class ContractReader
             {
                 Name = spec.Name, Type = spec.Type, Format = spec.Format, Description = spec.Description, Details = spec.Details, Required = spec.Required,
                 Secret = spec.Secret, Path = spec.Path, PathEnv = spec.PathEnv, Reload = spec.Reload, MaxSize = spec.MaxSize,
-                Deprecated = spec.Deprecated, Group = spec.Group,
+                Deprecated = spec.Deprecated, Group = spec.Group, RequiredIf = spec.RequiredIf, Roles = spec.Roles,
                 PasswordVar = password.Name, PropertyPath = spec.PropertyPath, PasswordPath = password.PropertyPath,
             };
         }
@@ -791,6 +807,139 @@ public static partial class ContractReader
     /// <see cref="DeprecatedAttribute"/> as the contract's <c>deprecated</c> (SPEC §4.2): the message not blank and at
     /// most 500 characters, and never on a required input, since the platform could not stop setting it.
     /// </summary>
+    /// <summary>A property's <see cref="RequiredIfAttribute"/> (SPEC §4.2.1), its value as the contract writes it.</summary>
+    private static RequiredIfSpec? Condition(PropertyInfo prop, string key, bool required, DeprecationSpec? deprecated, List<string> errors)
+    {
+        if (prop.GetCustomAttribute<RequiredIfAttribute>() is not { } attr)
+        {
+            return null;
+        }
+
+        object? value = attr.Value switch
+        {
+            bool b => b,
+            string s => s,
+            Enum e => e.ToString(),
+            sbyte or byte or short or ushort or int or uint or long => Convert.ToInt64(attr.Value, CultureInfo.InvariantCulture),
+            _ => null,
+        };
+        if (value is null)
+        {
+            errors.Add($"{key}: [RequiredIf] compares with a string, an enum member, an integer or a bool, not {attr.Value?.GetType().Name ?? "null"}.");
+            return null;
+        }
+
+        if (required)
+        {
+            errors.Add($"{key}: [RequiredIf] makes it required only while {attr.Variable} has a value; remove [Required].");
+            return null;
+        }
+
+        if (deprecated is not null)
+        {
+            errors.Add($"{key}: a [RequiredIf] input cannot be [Deprecated]: the platform could not stop setting it.");
+            return null;
+        }
+
+        return new RequiredIfSpec(attr.Variable, value);
+    }
+
+    /// <summary>A property's <see cref="RolesAttribute"/> (SPEC §4.9): the roles that use the input.</summary>
+    private static List<string>? InputRoles(PropertyInfo prop, string key, List<string> errors) =>
+        prop.GetCustomAttribute<RolesAttribute>() is { } attr
+            ? ContractJson.ReadRoles(new System.Text.Json.Nodes.JsonArray(attr.Roles.Select(r => (System.Text.Json.Nodes.JsonNode?)r).ToArray()), m => errors.Add($"{key}: [Roles] {m}"))
+            : null;
+
+    /// <summary>
+    /// The roles the image runs as (SPEC §4.9), from <see cref="RolesAttribute"/> on the options classes or their
+    /// assemblies, and the variable docuconf declares for them, DOCUCONF_ROLE.
+    /// </summary>
+    private static void ReadRoles(IEnumerable<Type> types, ContractModel model, List<string> errors)
+    {
+        var declared = types.Select(t => t.GetCustomAttribute<RolesAttribute>())
+            .Concat(types.Select(t => t.Assembly).Distinct().Select(a => a.GetCustomAttribute<RolesAttribute>()))
+            .OfType<RolesAttribute>()
+            .Select(a => a.Roles)
+            .ToList();
+        if (declared.Count == 0)
+        {
+            return;
+        }
+
+        if (declared.Any(r => !r.SequenceEqual(declared[0])))
+        {
+            errors.Add($"[Roles] is declared more than once, with different roles: {string.Join("; ", declared.Select(r => string.Join(", ", r)).Distinct())}. Declare the roles once, on the assembly.");
+            return;
+        }
+
+        var roles = ContractJson.ReadRoles(new System.Text.Json.Nodes.JsonArray(declared[0].Select(r => (System.Text.Json.Nodes.JsonNode?)r).ToArray()), m => errors.Add($"[Roles]: {m}"));
+        if (roles is null)
+        {
+            return;
+        }
+
+        if (model.Vars.TryGetValue(DocuconfContract.RoleVar, out var own))
+        {
+            errors.Add($"{own.ConfigKey}: docuconf declares {DocuconfContract.RoleVar} for the roles itself; remove the property.");
+            return;
+        }
+
+        model.Roles = roles;
+        model.Vars[DocuconfContract.RoleVar] = new VarSpec
+        {
+            Name = DocuconfContract.RoleVar,
+            ConfigKey = DocuconfContract.RoleVar,
+            Type = VarType.Enum,
+            Description = "The role this workload runs: " + string.Join(", ", roles),
+            Required = true,
+            Values = roles,
+        };
+    }
+
+    /// <summary>
+    /// The well-known fragments the options classes or their assemblies include (SPEC §4.8), and their variables: each
+    /// one the app does not declare itself, bound to no property.
+    /// </summary>
+    private static void ReadIncludes(IEnumerable<Type> types, ContractModel model, List<string> errors)
+    {
+        var refs = types.SelectMany(t => t.GetCustomAttributes<IncludesAttribute>())
+            .Concat(types.Select(t => t.Assembly).Distinct().SelectMany(a => a.GetCustomAttributes<IncludesAttribute>()))
+            .SelectMany(a => a.Fragments);
+        foreach (var r in refs)
+        {
+            if (Fragments.Vars(r) is not { } vars)
+            {
+                errors.Add($"[Includes]: '{r}' is not a well-known fragment; the fragments are {string.Join(", ", Fragments.Names)}.");
+                continue;
+            }
+
+            if (model.Includes.Contains(r))
+            {
+                errors.Add($"[Includes]: fragment {r} is included twice.");
+                continue;
+            }
+
+            model.Includes.Add(r);
+            foreach (var (name, node) in vars.OrderBy(v => v.Key, StringComparer.Ordinal))
+            {
+                if (model.Vars.ContainsKey(name))
+                {
+                    continue; // declared by the app, which replaces the fragment's
+                }
+
+                var json = node!.DeepClone().AsObject();
+                json["configKey"] = name;
+                var problems = new List<string>();
+                if (ContractJson.ReadVar(name, json, problems) is { } spec)
+                {
+                    model.Vars[name] = spec;
+                }
+
+                errors.AddRange(problems.Select(p => $"fragment {r}: {p}"));
+            }
+        }
+    }
+
     private static DeprecationSpec? Deprecation(PropertyInfo prop, string key, bool required, List<string> errors)
     {
         if (prop.GetCustomAttribute<DeprecatedAttribute>() is not { } deprecated)

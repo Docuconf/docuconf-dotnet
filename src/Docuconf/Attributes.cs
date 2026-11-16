@@ -391,3 +391,60 @@ public sealed class ConfigOverlayAttribute(string name, string path) : Attribute
     /// <summary>What the overlay is for, at least 5 characters.</summary>
     public string? Description { get; init; }
 }
+
+/// <summary>
+/// Makes a variable or file input required only while another variable has one value (SPEC §4.2.1): a client CA
+/// while <c>TLS_ENABLED</c> is true. The condition variable is a string, integer, bool or enum variable, named by its
+/// environment variable name, and is not secret. The input is otherwise optional, so it has no default: leave the
+/// property without an initializer, and make a value type nullable.
+/// </summary>
+/// <param name="variable">The condition variable's environment variable name, such as <c>TLS_ENABLED</c>.</param>
+/// <param name="value">The value that makes the input required: a string (an enum's member name), an integer or a bool.</param>
+/// <example><code>[RequiredIf("TLS_ENABLED", true)] public string? ClientCaSubject { get; set; }</code></example>
+[AttributeUsage(AttributeTargets.Property)]
+public sealed class RequiredIfAttribute(string variable, object value) : Attribute
+{
+    /// <summary>The condition variable's environment variable name.</summary>
+    public string Variable { get; } = variable;
+
+    /// <summary>The value that makes the input required.</summary>
+    public object Value { get; } = value;
+}
+
+/// <summary>
+/// On an options class or the assembly, declares the roles one image runs as, one per kind of process: the web
+/// server, the job worker (SPEC §4.9). On a property, limits the input to those roles: it is required only in them,
+/// and optional in the others. The contract then has the variable <c>DOCUCONF_ROLE</c>, a required enum of the
+/// roles, which the platform sets to the workload's role; docuconf declares it, so the app does not.
+/// </summary>
+/// <param name="roles">The roles: DNS labels such as <c>web</c>, at least one.</param>
+/// <example><code>
+/// [assembly: Roles("web", "worker")]
+/// public sealed class ShopOptions
+/// {
+///     [Required, Roles("web")] public string[]? AllowedOrigins { get; set; }
+///     [Required, Roles("worker")] public string[]? Queues { get; set; }
+/// }
+/// </code></example>
+[AttributeUsage(AttributeTargets.Class | AttributeTargets.Assembly | AttributeTargets.Property)]
+public sealed class RolesAttribute(params string[] roles) : Attribute
+{
+    /// <summary>The roles.</summary>
+    public IReadOnlyList<string> Roles { get; } = roles;
+}
+
+/// <summary>
+/// Includes well-known fragments (SPEC §4.8): variables a runtime, framework or library reads, which the app never
+/// reads itself, such as <c>ASPNETCORE_HTTP_PORTS</c> (<c>dotnet-runtime@1</c>) or <c>OTEL_EXPORTER_OTLP_ENDPOINT</c>
+/// (<c>otel@1</c>). The exported contract lists them and carries their variables, so the platform may set them; their
+/// values are checked at startup like any other, but bind to no property. A variable the app declares itself
+/// replaces the fragment's.
+/// </summary>
+/// <param name="fragments">The fragments, name@major, such as <c>otel@1</c>.</param>
+/// <example><code>[assembly: Includes("dotnet-runtime@1", "otel@1")]</code></example>
+[AttributeUsage(AttributeTargets.Class | AttributeTargets.Assembly, AllowMultiple = true)]
+public sealed class IncludesAttribute(params string[] fragments) : Attribute
+{
+    /// <summary>The fragments, name@major.</summary>
+    public IReadOnlyList<string> Fragments { get; } = fragments;
+}
