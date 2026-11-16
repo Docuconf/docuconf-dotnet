@@ -40,6 +40,9 @@ public sealed class DocuconfContract
 {
     private DocuconfContract(ContractModel model) => Model = model;
 
+    /// <summary>The variable that names a workload's role, when the contract declares roles (SPEC §4.9).</summary>
+    public const string RoleVar = "DOCUCONF_ROLE";
+
     /// <summary>The variables the contract declares.</summary>
     public ContractModel Model { get; }
 
@@ -86,9 +89,15 @@ public sealed class DocuconfContract
 
         Overlays.Load(Model, root, layers, violations, warnings);
 
+        // Roles (SPEC §4.9): an input that only other roles use is optional here. With no role, or one the contract
+        // does not declare, every role-specific input is optional, so the role is the one problem reported.
+        string? role = Model.Roles is { } roles && environment.TryGetValue(RoleVar, out var named) && roles.Contains(named) ? named : null;
+        bool InRole(IReadOnlyList<string>? used) => used is null || (role is not null && used.Contains(role));
+
         var values = new Dictionary<string, object?>(StringComparer.Ordinal);
-        foreach (var spec in Model.Vars.Values)
+        foreach (var declared in Model.Vars.Values)
         {
+            var spec = declared.Required && !InRole(declared.Roles) ? declared.WithRequired(false) : declared;
             values[spec.Name] = ContractFirstLoader.Load(spec, layers.GetValueOrDefault(spec.Name), environment, violations, out var set);
             if (set && spec.Deprecated is { } deprecation)
             {
@@ -96,11 +105,32 @@ public sealed class DocuconfContract
             }
         }
 
+        // Conditional requirements (SPEC §4.2.1), on the condition variables' loaded values: the environment, an
+        // overlay, the selected profile or the default. A condition variable with a violation has no value, so it
+        // makes nothing required.
+        string? RequiredWhen(RequiredIfSpec? condition, IReadOnlyList<string>? used) =>
+            condition is not null && InRole(used) && condition.HoldsFor(values.GetValueOrDefault(condition.Var)) ? condition.ToString() : null;
+        var reported = violations.Select(v => v.Input).ToHashSet(StringComparer.Ordinal);
+        foreach (var spec in Model.Vars.Values)
+        {
+            if (values[spec.Name] is null && !reported.Contains(spec.Name) && RequiredWhen(spec.RequiredIf, spec.Roles) is { } when)
+            {
+                violations.Add(new Violation(Codes.MissingRequired, spec.Name, $"is required when {when}"));
+            }
+        }
+
+        FileSpec ForBoot(FileSpec f)
+        {
+            var when = RequiredWhen(f.RequiredIf, f.Roles);
+            bool required = InRole(f.Roles) && (f.Required || when is not null);
+            return required == f.Required && when is null ? f : f.WithRequired(required, when);
+        }
+
         string? Password(string name) =>
             values.GetValueOrDefault(name) as string ?? (environment.TryGetValue(name, out var raw) ? raw : null);
         var clock = settings?.Clock ?? (() => DateTimeOffset.UtcNow);
         var log = settings?.Error ?? Console.Error;
-        foreach (var (name, value) in FileChecks.LoadContract(Model, n => environment.GetValueOrDefault(n), root, clock, log, Password, violations))
+        foreach (var (name, value) in FileChecks.LoadContract(Model, ForBoot, n => environment.GetValueOrDefault(n), root, clock, log, Password, violations))
         {
             values[name] = value;
             if (value is not null && Model.Files[name].Deprecated is { } deprecation)

@@ -539,6 +539,13 @@ fails with `schema_mismatch`, naming the location and keyword (`/perMinute fails
 the value; `minLength` and `maxLength` count code points, as in the other SDKs. A schema JsonSchema.Net cannot read,
 or one with a `$schema` other than 2020-12, is an error when the contract is read.
 
+An input with `requiredIf: {VAR: value}` (SPEC §4.2.1) is required while the condition variable's loaded value (the
+environment, an overlay, the selected profile, or its default) is that value: `CA_SUBJECT: is required when
+TLS_ENABLED is true`. A condition variable with a violation of its own makes nothing required. In a contract with
+`roles` (SPEC §4.9), the workload's role is `DOCUCONF_ROLE`, and an input whose `roles` leave it out is optional: with
+no role, or one the contract does not declare, only the inputs every role uses are required. A fragment's variables
+(`includes`, SPEC §4.8) are in the contract inline, and read like any other.
+
 ### Conformance
 
 The tests run docuconf's shared conformance suite (SPEC §12) through the contract-first mode. They read
@@ -552,8 +559,12 @@ DOCUCONF_CONFORMANCE=../docuconf-go/conformance/cases.json DOCUCONF_REQUIRE_CONF
 Without the file the test is skipped, unless `DOCUCONF_REQUIRE_CONFORMANCE=1` (as in CI). Each case's files are
 written under a new directory, which is its `DOCUCONF_FILE_ROOT`.
 
+`cases.pending.json`, next to `cases.json`, holds the cases of features not every SDK supports yet. A second test runs
+it: a case with a tag this runner knows must pass, and one with a tag it does not know is skipped without failing.
+
 **Capability tags skipped: none.** The runner keeps an allow-list of the tags it supports, which is every tag in the
-suite: `int64`, `json-schema`, `key-set`, `deprecated`, `strict-parsing`, `files`, `profiles` and `overlays`. A case
+suite: `int64`, `json-schema`, `key-set`, `deprecated`, `strict-parsing`, `files`, `profiles`, `overlays`,
+`required-if` and `roles`. A case
 with a tag it does not know is skipped, never run, and a skip fails the test, so a new tag shows up as a failure
 rather than a silent skip. PKCS#12 keystores (AES-256 with PBKDF2) are opened with .NET's own reader, and an Ed25519
 key is matched to its certificate by docuconf itself, since .NET has no Ed25519 key type. CI runs the suite on Linux.
