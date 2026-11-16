@@ -111,7 +111,8 @@ internal static class DocuconfStartup
             return;
         }
 
-        problems = Redact(problems, declared, configuration);
+        // Options classes that share assembly-level [Roles] or [Includes] each report the same unbound variable.
+        problems = Redact(problems.Distinct(StringComparer.Ordinal), declared, configuration);
         Report(settings, problems);
         if (registrations.Any(r => r.Settings.ThrowOnInvalid))
         {

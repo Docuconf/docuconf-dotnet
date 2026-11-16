@@ -58,8 +58,16 @@ import (
 		message:     #DeprecationMessage
 		replacedBy?: #InputName
 	}
+	// The roles that use it (SPEC §4.9); every role when absent.
+	roles?: [#RoleName, ...#RoleName] & list.UniqueItems()
+	// Required only while a variable has a value (SPEC §4.2, §4.6).
+	requiredIf?: #RequiredIf
+	if requiredIf != _|_ {
+		_requiredIfOnAnOptionalInput: true & !required
+	}
 	if deprecated != _|_ {
-		_aRequiredInputCannotBeDeprecated: true & !required
+		_aRequiredInputCannotBeDeprecated:              true & !required
+		_aConditionallyRequiredInputCannotBeDeprecated: true & requiredIf == _|_
 	}
 }
 

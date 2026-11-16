@@ -50,6 +50,16 @@ public static partial class CueWriter
         w.Field("generator", $"{{\"language\": \"dotnet\", \"sdk\": {Str(generator.Sdk)}, \"version\": {Str(generator.Version)}}}", $"{{language: \"dotnet\", sdk: {Str(generator.Sdk)}, version: {Str(generator.Version)}}}");
         w.Close();
 
+        if (model.Includes.Count > 0)
+        {
+            w.Field("includes", List(model.Includes.Select(Str)));
+        }
+
+        if (model.Roles is { } roles)
+        {
+            w.Field("roles", List(roles.Select(Str)));
+        }
+
         w.Open("vars");
         foreach (var spec in model.Vars.Values)
         {
@@ -138,6 +148,8 @@ public static partial class CueWriter
         if (v.Group is { } group) w.Field("group", Str(group));
         if (v.Examples is { Count: > 0 } examples) w.Field("examples", List(examples.Select(Str)));
         if (v.Deprecated is { } deprecated) WriteDeprecated(w, deprecated);
+        if (v.RequiredIf is { } condition) WriteCondition(w, condition);
+        if (v.Roles is { } inputRoles) w.Field("roles", List(inputRoles.Select(Str)));
         // A configKey that is the variable's own name tells a reader nothing (SPEC §4.2), unless an overlay places the
         // value there (SPEC §4.7).
         if (v.ConfigKey.Length > 0 && (overlays || v.ConfigKey != v.Name)) w.Field("configKey", Str(v.ConfigKey));
@@ -199,6 +211,8 @@ public static partial class CueWriter
         if (f.PathEnv is { } pathEnv) w.Field("pathEnv", Str(pathEnv));
         if (f.Group is { } group) w.Field("group", Str(group));
         if (f.Deprecated is { } deprecated) WriteDeprecated(w, deprecated);
+        if (f.RequiredIf is { } condition) WriteCondition(w, condition);
+        if (f.Roles is { } inputRoles) w.Field("roles", List(inputRoles.Select(Str)));
         if (f.Reload == Reload.Watch) w.Field("reload", Str("watch"));
         if (f.MaxSize is { } maxSize) w.Field("maxSize", Num(maxSize));
         if (f.DnsNames is { } dnsNames) w.Field("dnsNames", List(dnsNames.Select(Str)));
@@ -234,6 +248,13 @@ public static partial class CueWriter
         JsonNode node => node.ToJsonString(Json), // JSON is valid CUE.
         _ => throw new ArgumentException($"Cannot write {value.GetType().Name} into a contract."),
     };
+
+    private static void WriteCondition(Writer w, RequiredIfSpec condition)
+    {
+        w.Open("requiredIf");
+        w.Field(condition.Var, Value(condition.Value));
+        w.Close();
+    }
 
     private static string FloatLiteral(double d)
     {

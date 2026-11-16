@@ -506,6 +506,44 @@ nothing special: docuconf validates the environment and files as they are when t
 value still holds a reference when the app starts (it begins with `vault:`, `op://` or `ref+`), the injector did not
 run, and startup fails with `invalid_type` naming the variable and the reference scheme, never the value.
 
+### Conditional inputs, roles and fragments
+
+`[RequiredIf]` makes an input required only while another variable has one value (SPEC §4.2.1). The condition names
+the variable by its environment variable name, and compares with a string (or enum member), an integer or a bool:
+
+```csharp
+[EnvName("TLS_ENABLED")] public bool TlsEnabled { get; set; }
+[RequiredIf("TLS_ENABLED", true)] public string? ClientCaSubject { get; set; }
+[TextFile("/etc/relay/allow.txt"), RequiredIf("TLS_ENABLED", true)] public string? Allowlist { get; set; }
+```
+
+The input is optional otherwise, so it has no initializer, and a value type is nullable. At startup the condition reads
+the variable's bound value (configuration, else its initializer); a variable with a violation of its own makes nothing
+required: `CA_SUBJECT: is required when TLS_ENABLED is true`.
+
+`[Roles]` declares the roles one image runs as, one per kind of process (SPEC §4.9). Put it on the assembly (or on
+the one options class), and on each input only some roles use:
+
+```csharp
+[assembly: Roles("web", "worker")]
+
+[Required, Roles("web")] public string[]? AllowedOrigins { get; set; }
+[Required, Roles("worker")] public string[]? Queues { get; set; }
+```
+
+The contract gets `DOCUCONF_ROLE`, a required enum of the roles, which the platform sets to the workload's role.
+docuconf declares it and checks it at startup; then only the inputs the role uses are required. With no role, or one
+the contract does not declare, the role is the one problem reported.
+
+`[Includes]` adds well-known fragments (SPEC §4.8): variables the runtime or a library reads, which the app never binds,
+such as `ASPNETCORE_HTTP_PORTS` (`dotnet-runtime@1`) or `OTEL_EXPORTER_OTLP_ENDPOINT` (`otel@1`). The contract carries
+them, so the platform may set them under its unknown-variable check, and startup checks their values like any other.
+A variable the app declares itself replaces the fragment's.
+
+```csharp
+[assembly: Includes("dotnet-runtime@1", "otel@1")]
+```
+
 ### Contract-first
 
 When the contract comes first (written by hand in CUE, or another app's), validate an environment against it
