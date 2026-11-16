@@ -544,8 +544,15 @@ public sealed class DeclarationAnalyzer : DiagnosticAnalyzer
             return false;
         });
 
+    /// <summary>
+    /// <see cref="SymbolDisplayFormat.FullyQualifiedFormat"/> prints special types as keywords (<c>string</c>, <c>int</c>),
+    /// so names like <c>System.String</c> would never match; this format spells them out like any other type.
+    /// </summary>
+    private static readonly SymbolDisplayFormat FullName =
+        SymbolDisplayFormat.FullyQualifiedFormat.RemoveMiscellaneousOptions(SymbolDisplayMiscellaneousOptions.UseSpecialTypes);
+
     private static bool Is(ITypeSymbol? type, string fullName) =>
-        type is not null && type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) == "global::" + fullName;
+        type is not null && type.ToDisplayString(FullName) == "global::" + fullName;
 
     private static ITypeSymbol Unwrap(ITypeSymbol type) =>
         type is INamedTypeSymbol { OriginalDefinition.SpecialType: SpecialType.System_Nullable_T } nullable ? nullable.TypeArguments[0] : type;

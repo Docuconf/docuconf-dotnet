@@ -143,6 +143,24 @@ public sealed class AnalyzerTests
     }
 
     [Fact]
+    public async Task A_TextFile_on_a_string_or_nullable_string_is_fine()
+    {
+        var diagnostics = await Compiler.Analyze("""
+            [ConfigContract("svc", Section = "Svc")]
+            public sealed class SvcOptions
+            {
+                [TextFile("/etc/svc/licence.key"), Description("Licence key")]
+                public string Licence { get; set; } = "";
+
+                [TextFile("/etc/svc/webhook.key"), Description("Webhook signing key")]
+                public string? WebhookSigningKey { get; set; }
+            }
+            """);
+
+        Assert.Empty(diagnostics);
+    }
+
+    [Fact]
     public async Task A_record_that_leaves_secrets_out_of_PrintMembers_is_fine()
     {
         var diagnostics = await Compiler.Analyze("""
