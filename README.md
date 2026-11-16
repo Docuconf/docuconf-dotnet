@@ -9,7 +9,8 @@ TLS key pairs, CA bundles, keystores, JSON config files and licence files.
 
 Part of [docuconf](https://github.com/docuconf). See the
 [specification](https://github.com/docuconf/docuconf-go/blob/main/spec/SPEC.md).
-A complete app: [`examples/orders`](examples/orders).
+A complete app: [`examples/orders`](examples/orders). Roles, conditional inputs and fragments:
+[`examples/shop`](examples/shop).
 
 > **Status:** `0.1.0-alpha`. The contract format is a draft (`v1alpha1`) and the API may change.
 

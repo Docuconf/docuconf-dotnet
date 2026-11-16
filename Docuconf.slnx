@@ -2,6 +2,8 @@
   <Folder Name="/examples/">
     <Project Path="examples/orders/Orders.Api.csproj" />
     <Project Path="examples/orders.Tests/Orders.Api.Tests.csproj" />
+    <Project Path="examples/shop/Shop.csproj" />
+    <Project Path="examples/shop.Tests/Shop.Tests.csproj" />
   </Folder>
   <Folder Name="/samples/">
     <Project Path="samples/Billing.Api/Billing.Api.csproj" />
