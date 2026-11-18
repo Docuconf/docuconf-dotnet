@@ -4,7 +4,7 @@
     <TargetFrameworks>net8.0;net10.0</TargetFrameworks>
     <RootNamespace>Docuconf</RootNamespace>
     <PackageId>Docuconf.Options</PackageId>
-    <Version>0.1.0-alpha.2</Version>
+    <Version>0.1.0-alpha.3</Version>
     <Description>Typed configuration contracts for the .NET Options pattern and appsettings, validated by your Kubernetes platform before deploy and by your app at startup.</Description>
     <PackageTags>configuration;options;kubernetes;cue;crossplane;validation</PackageTags>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
