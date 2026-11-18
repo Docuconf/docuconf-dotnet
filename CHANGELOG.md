@@ -4,6 +4,29 @@ All notable changes to Docuconf.Options are documented here. Entries after 0.1.0
 [release-please](https://github.com/googleapis/release-please) from Conventional Commit messages; see
 [CONTRIBUTING.md](CONTRIBUTING.md).
 
+## [0.1.0-alpha.3](https://github.com/Docuconf/docuconf-dotnet/compare/v0.1.0-alpha.2...v0.1.0-alpha.3) (2026-11-18)
+
+
+### Features
+
+* [RequiredIf], [Roles] and [Includes] for options classes ([ebdcc41](https://github.com/Docuconf/docuconf-dotnet/commit/ebdcc41c857e27bd0f230970df3ea10febc8d1d6))
+* [RequiredIf], [Roles] and [Includes] for options classes ([9eb9f31](https://github.com/Docuconf/docuconf-dotnet/commit/9eb9f31e3f27705b139825a5328d2f094d56e3b6))
+* requiredIf, roles and includes in the contract-first mode ([44ccf32](https://github.com/Docuconf/docuconf-dotnet/commit/44ccf323271d6ec51eff654b689e37142e26cf01))
+* requiredIf, roles and includes in the contract-first mode ([cd43a87](https://github.com/Docuconf/docuconf-dotnet/commit/cd43a87c728ccd01e34488b7d2d97cccd6b88ee8))
+
+
+### Bug Fixes
+
+* **analyzer:** accept [TextFile] on string properties ([a996fe5](https://github.com/Docuconf/docuconf-dotnet/commit/a996fe5c3aa1387a8c99505e466d56800df92c04))
+* **analyzer:** accept [TextFile] on string properties ([acb8e3e](https://github.com/Docuconf/docuconf-dotnet/commit/acb8e3ef90dcb8bd87e146afad64f84f5e25dcb8))
+
+
+### Documentation
+
+* add the shop example (roles, requiredIf, fragments) ([8fe48bb](https://github.com/Docuconf/docuconf-dotnet/commit/8fe48bb7d80b4cf71870eb9f661ec664e9932f75))
+* add the shop example (roles, requiredIf, fragments) ([6ae08af](https://github.com/Docuconf/docuconf-dotnet/commit/6ae08af1a6d2203bb59eade190c9ed9ed2dfabe7))
+* compile the README's conditional, role and fragment examples ([5f1395a](https://github.com/Docuconf/docuconf-dotnet/commit/5f1395a951f18caafa117fb4169e5db46cd3efab))
+
 ## [0.1.0-alpha.2](https://github.com/Docuconf/docuconf-dotnet/compare/v0.1.0-alpha.1...v0.1.0-alpha.2) (2026-10-11)
 
 
