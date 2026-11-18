@@ -544,8 +544,13 @@ public sealed class DeclarationAnalyzer : DiagnosticAnalyzer
             return false;
         });
 
+    // FullyQualifiedFormat writes special types as keywords ("string", not "global::System.String"), so this format
+    // leaves them as their metadata names, which is what callers pass.
+    private static readonly SymbolDisplayFormat QualifiedName =
+        SymbolDisplayFormat.FullyQualifiedFormat.RemoveMiscellaneousOptions(SymbolDisplayMiscellaneousOptions.UseSpecialTypes);
+
     private static bool Is(ITypeSymbol? type, string fullName) =>
-        type is not null && type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) == "global::" + fullName;
+        type is not null && type.ToDisplayString(QualifiedName) == "global::" + fullName;
 
     private static ITypeSymbol Unwrap(ITypeSymbol type) =>
         type is INamedTypeSymbol { OriginalDefinition.SpecialType: SpecialType.System_Nullable_T } nullable ? nullable.TypeArguments[0] : type;

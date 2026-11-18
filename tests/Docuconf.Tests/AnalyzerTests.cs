@@ -35,6 +35,15 @@ public sealed class AnalyzerTests
                 public Dictionary<string, string> Headers { get; set; } = [];
 
                 public Nested Child { get; set; } = new();
+
+                [TextFile("/etc/orders/licence.key"), Description("Licence key")]
+                public string Licence { get; set; } = "";
+
+                [TextFile("/etc/orders/banner.txt"), Description("Banner shown at login")]
+                public string? Banner { get; set; }
+
+                [TlsFile("/etc/orders/tls"), Description("Serving certificate")]
+                public TlsKeyPair? ServingTls { get; set; }
             }
 
             public sealed class Nested

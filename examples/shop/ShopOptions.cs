@@ -42,12 +42,8 @@ public sealed class ShopOptions
     public string? LogSchemaUrl { get; set; }
 
     // A file the worker reads only while it sends webhooks: required when WEBHOOKS_ENABLED is true, and never for web.
-    // The analyzer's DOCUCONF010 wrongly rejects every [TextFile] string property today; the export and the runtime
-    // accept it. Remove the pragma once the analyzer is fixed.
-#pragma warning disable DOCUCONF010
     [TextFile("/etc/shop/webhooks/signing.key", Name = "webhook-signing-key", MinLength = 32), Secret]
     [RequiredIf("WEBHOOKS_ENABLED", true), Roles("worker")]
     [Description("Key that signs outgoing order webhooks")]
     public string? WebhookSigningKey { get; set; }
-#pragma warning restore DOCUCONF010
 }
